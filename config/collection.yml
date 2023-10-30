@@ -1,0 +1,3 @@
+operator_name: {{cookiecutter.operator_name}}
+nexus_ident: {{cookiecutter.nexus_ident}}
+capture_date: {{cookiecutter.datestamp}}
