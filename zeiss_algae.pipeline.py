@@ -294,13 +294,11 @@ class ZeissAxioObserver(BasePipeline):
             file_path (str): The file path where the image will be written to.
             data: The input dictionary that will be written to disk.
         """
-
         self.logger.debug(f"Writing new data to JSON file: {file_path}")
-
         # Write dictionary to JSON file
         try:
             with open(file_path, "w") as json_file:
-                json.dump(data, json_file)
+                json.dump(data, json_file, indent=4, sort_keys=True)
             self.logger.debug(f"Completed writing data to JSON file: {file_path}")
         except Exception as e:
             self.logger.error(f"Could not write data to JSON file: {file_path}")
