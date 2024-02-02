@@ -5,12 +5,14 @@ Marimba pipeline for the CSIRO ANACC Zeiss Axio microscopes
 import os
 import re
 from pathlib import Path
+from typing import List, Dict, Any, Tuple
 
 import czifile
 import dateutil.parser
 import pandas as pd
+from ifdo.models import ImageData
 
-import marimba.utils.file_system as fs
+import marimba.core.utils.file_system as fs
 from marimba.core.pipeline import BasePipeline
 from marimba.utils.config import load_config
 
@@ -25,39 +27,77 @@ __status__ = "Development"
 
 
 class ZeissAxioObserver(BasePipeline):
-    def __init__(self, root_path: str, collection_config: dict, instrument_config: dict, dry_run: bool):
-        super().__init__(root_path, collection_config, instrument_config, dry_run)
-
-        # Define instrument filetypes and data files
-        self.filetypes = ["czi"]
-        # TODO: See if we need these here...
-        self.strain_list_df = pd.read_csv(f"{root_path}/lib/anacc_strain_list.csv")
-        self.cs_code_list = self.strain_list_df["CS Number"].str.replace("-", "", 1).str.replace("/", "-").unique()
-
-        # Dictionary of available imaging systems
-        self.imaging_systems = {
-            "IFC": "CytoBuoy CytoSense Imaging Flow Cytometer",
-            "YFC": "Yokogawa FlowCam",
-            "ZAO": "ZEISS Axio Observer",
-            "ZAP": "ZEISS Axio Plan",
+    @staticmethod
+    def get_pipeline_config_schema() -> dict:
+        return {
+            "project_pi": "Chris Jackett",
+            "platform_id": "ZAO",
         }
 
-        # Dictionary of available contrast settings
-        self.contrast_settings = {
-            "BF": "Bright Field",
-            "DIC": "Differential Interference Contrast",
-            "FL": "Fluorescence",
-            "PC": "Phase Contrast",
+    @staticmethod
+    def get_collection_config_schema() -> dict:
+        return {
+            "data_collector": "Chris Jackett",
         }
 
-        # Dictionary of available biological stains
-        self.biological_stains = {
-            "DPI": "Dapi",
-            "GTD": "Glutaraldehyde",
-            "IDN": "Iodine (Lugols)",
-            "TYL": "Tylose (or Carboxyl Methyl Cellulose)",
-            "NA": "Not Applicable",
-        }
+    # def __init__(self, root_path: str, collection_config: dict, instrument_config: dict, dry_run: bool):
+    #     super().__init__(root_path, collection_config, instrument_config, dry_run)
+    #
+    #     # Define instrument filetypes and data files
+    #     self.filetypes = ["czi"]
+    #     # TODO: See if we need these here...
+    #     self.strain_list_df = pd.read_csv(f"{root_path}/lib/anacc_strain_list.csv")
+    #     self.cs_code_list = self.strain_list_df["CS Number"].str.replace("-", "", 1).str.replace("/", "-").unique()
+    #
+    #     # Dictionary of available imaging systems
+    #     self.imaging_systems = {
+    #         "IFC": "CytoBuoy CytoSense Imaging Flow Cytometer",
+    #         "YFC": "Yokogawa FlowCam",
+    #         "ZAO": "ZEISS Axio Observer",
+    #         "ZAP": "ZEISS Axio Plan",
+    #     }
+    #
+    #     # Dictionary of available contrast settings
+    #     self.contrast_settings = {
+    #         "BF": "Bright Field",
+    #         "DIC": "Differential Interference Contrast",
+    #         "FL": "Fluorescence",
+    #         "PC": "Phase Contrast",
+    #     }
+    #
+    #     # Dictionary of available biological stains
+    #     self.biological_stains = {
+    #         "DPI": "Dapi",
+    #         "GTD": "Glutaraldehyde",
+    #         "IDN": "Iodine (Lugols)",
+    #         "TYL": "Tylose (or Carboxyl Methyl Cellulose)",
+    #         "NA": "Not Applicable",
+    #     }
+
+    def _import(
+        self,
+        data_dir: Path,
+        source_paths: List[Path],
+        config: Dict[str, Any],
+        **kwargs: dict,
+    ):
+        # This is really a process to extract the individual vignettes from the collage images
+        self.logger.info(f"Importing data from {source_paths=} to {data_dir}")
+        for source_path in source_paths:
+            if not source_path.is_dir():
+                continue
+
+            sorted_file_names = sorted(source_path.iterdir(), key=lambda p: self.natural_sort_key(p.name))
+
+            i = 1  # Initialize i outside the loop
+            for file_path in sorted_file_names:
+                if file_path.suffix.lower() == ".png":
+                    self.logger.info(f"Extracting vignettes from {file_path.name}")
+                    i = self.find_sub_images(file_path, data_dir, i)
+                if file_path.suffix.lower() == ".csv":
+                    if not self.dry_run:
+                        copy2(file_path, data_dir)
+                    self.logger.debug(f"Copied {file_path.resolve().absolute()} -> {data_dir}")
 
     def run_rename(self, deployment_path: Path):
         """
@@ -139,7 +179,7 @@ class ZeissAxioObserver(BasePipeline):
                 f".CZI"
             )
 
-    def process(self, deployment_path: Path):
+    def _process(self, data_dir: Path, config: Dict[str, Any], **kwargs: dict):
         """
         Implementation of the Marimba process command for the Zeiss Axio Observer
         """
@@ -301,6 +341,11 @@ class ZeissAxioObserver(BasePipeline):
                     except Exception as e:
                         self.logger.error(f"Error opening file {file_path}")
                         self.logger.error(e)
+
+    def _compose(self, data_dirs: List[Path], configs: List[Dict[str, Any]], **kwargs: dict) -> Dict[Path, Tuple[Path, List[ImageData]]]:
+        data_mapping = {}
+
+        return data_mapping
 
     # TODO: The following identifier checking methods need to moved into a cookiecutter post-generate hook
     # TODO: https://cookiecutter.readthedocs.io/en/1.7.2/advanced/hooks.html
