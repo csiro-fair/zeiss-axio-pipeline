@@ -14,7 +14,7 @@ from ifdo.models import ImageData
 
 import marimba.core.utils.file_system as fs
 from marimba.core.pipeline import BasePipeline
-from marimba.utils.config import load_config
+from marimba.core.utils.config import load_config
 
 __author__ = "Chris Jackett"
 __copyright__ = "Copyright 2023, Environment, CSIRO"
@@ -38,6 +38,7 @@ class ZeissAxioObserver(BasePipeline):
     def get_collection_config_schema() -> dict:
         return {
             "data_collector": "Chris Jackett",
+            "collection_year": 2021,
         }
 
     # def __init__(self, root_path: str, collection_config: dict, instrument_config: dict, dry_run: bool):
