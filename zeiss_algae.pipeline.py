@@ -268,7 +268,7 @@ class ZeissAxioObserver(BasePipeline):
             # Write new JPG image to MLAI archive
             self.write_image_to_disk(new_mlai_file_path, stacked_image, "MLAI")
 
-    def write_image_to_disk(self, file_path: str, image, location: str):
+    def write_image_to_disk(self, file_path: Path, image, location: str):
         """
         Args:
             file_path (str): The file path where the image will be written to.
@@ -282,7 +282,7 @@ class ZeissAxioObserver(BasePipeline):
         normalised_image = cv2.normalize(cv2.cvtColor(image, cv2.COLOR_BGR2RGB), None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_16U)
 
         # Write JPG to disk
-        if cv2.imwrite(file_path, normalised_image, [cv2.IMWRITE_JPEG_QUALITY, 90]):
+        if cv2.imwrite(str(file_path), normalised_image, [cv2.IMWRITE_JPEG_QUALITY, 90]):
             self.logger.debug(f"Completed writing JPG file: {file_path}")
         else:
             self.logger.error(f"Could not write JPG image: {file_path}")
