@@ -144,7 +144,7 @@ class ZeissAxioObserver(BasePipeline):
                     file_name_parts = source_file.stem.split("_")
                     file_name = "_".join(file_name_parts[:6] + file_name_parts[7:])
 
-                    self.extract_frames(file_name, new_mlai_image_directory_path)
+                    self.extract_frames(image, file_name, new_mlai_image_directory_path)
                     self.extract_data(source_file, file_name, new_mlai_data_directory_path)
 
             except Exception as e:
