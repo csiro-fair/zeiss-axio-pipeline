@@ -237,7 +237,7 @@ class ZeissAxioObserver(BasePipeline):
         self.logger.info(f"Extracting frames...")
 
         # Remove the seventh filename identifier from the filename by splitting on underscore
-        file_name_parts = file_name.split("_")
+        file_name_parts = file_name.name.split("_")
         new_file_name = "_".join(file_name_parts[:5] + file_name_parts[7:])
 
         # # If CZI file has stacked images, fetch number of images
