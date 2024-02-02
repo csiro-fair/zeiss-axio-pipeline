@@ -161,7 +161,7 @@ class ZeissAxioObserver(BasePipeline):
 
             new_mlai_file_path = new_mlai_data_directory_path / (file_name + ".JSON")
 
-            self.write_data_to_disk(metadata, new_mlai_file_path)
+            self.write_data_to_disk(new_mlai_file_path, metadata)
 
     def directory_path_from_filename(self, data_dir: Path, filename: str) -> Path:
         """
@@ -287,7 +287,7 @@ class ZeissAxioObserver(BasePipeline):
         else:
             self.logger.error(f"Could not write JPG image: {file_path}")
 
-    def write_data_to_disk(self, file_path: str, data: Dict):
+    def write_data_to_disk(self, file_path: Path, data: Dict):
         """
         Write data to a JSON file on disk.
         Args:
