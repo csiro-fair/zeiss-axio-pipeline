@@ -1,7 +1,7 @@
 """
 Marimba pipeline for the CSIRO ANACC Zeiss Axio microscopes
 """
-
+import json
 import os
 import re
 from pathlib import Path
@@ -11,7 +11,6 @@ import cv2
 import czifile
 from ifdo.models import ImageData
 
-import marimba.core.utils.file_system as fs
 from marimba.core.pipeline import BasePipeline
 from marimba.core.utils.config import load_config
 
@@ -126,13 +125,43 @@ class ZeissAxioObserver(BasePipeline):
                 return
 
             new_mlai_directory_path = self.directory_path_from_filename(data_dir, source_file.name)
+            new_mlai_image_directory_path = new_mlai_directory_path / "images"
+            new_mlai_data_directory_path = new_mlai_directory_path / "data"
 
             if self.already_extracted(new_mlai_directory_path, source_file.name):
                 self.logger.debug(f"Imported {source_file.resolve().absolute()} -> {data_dir}")
                 return
 
-            self.logger.info(f"Extracting CZI file: {source_file}...")
-            self.extract_image_from_file(source_file, new_mlai_directory_path)
+            self.logger.info(f"Reading CZI file: {source_file}...")
+
+            # Try to read CZI file and extract image frames
+            try:
+                image = czifile.imread(str(source_file))
+                # Extract CZI images and video frames
+
+                if len(image.shape) == 5:
+                    # Remove the seventh filename identifier from the filename by splitting on underscore
+                    file_name_parts = source_file.stem.split("_")
+                    file_name = "_".join(file_name_parts[:6] + file_name_parts[7:])
+
+                    self.extract_frames(file_name, new_mlai_image_directory_path)
+                    self.extract_data(source_file, file_name, new_mlai_data_directory_path)
+
+            except Exception as e:
+                self.logger.error(f"Error extracting file {source_file.name}")
+                self.logger.error(e)
+
+    def extract_data(self, source_file, file_name, new_mlai_data_directory_path):
+        self.logger.info(f"Extracting data...")
+
+        new_mlai_data_directory_path.mkdir(parents=True, exist_ok=True)
+        with czifile.CziFile(source_file) as czi:
+            # Get CZI file metadata as dictionary
+            metadata = czi.metadata(raw=False)
+
+            new_mlai_file_path = new_mlai_data_directory_path / (file_name + ".JSON")
+
+            self.write_data_to_disk(metadata, new_mlai_file_path)
 
     def directory_path_from_filename(self, data_dir: Path, filename: str) -> Path:
         """
@@ -160,24 +189,6 @@ class ZeissAxioObserver(BasePipeline):
         # Construct new directory paths
         return self.construct_new_directory_paths(data_dir, iso_timestamp, strain_id, magnification_factor, contrast_id, biological_stain_id)
 
-    def extract_image_from_file(self, source_file: Path, new_mlai_directory_path: Path):
-        """
-        Args:
-            source_file: Path
-                The path to the source file from which the image frames need to be extracted.
-            new_mlai_directory_path: Path
-                The path to the directory where the extracted image frames will be saved.
-
-        """
-        # Try to read CZI file and extract image frames
-        try:
-            image = czifile.imread(str(source_file))
-            # Extract CZI images and video frames
-            self.extract_frames(image, source_file, new_mlai_directory_path)
-        except Exception as e:
-            self.logger.error(f"Error opening file {source_file.name}")
-            self.logger.error(e)
-
     def already_extracted(self, new_mlai_directory_path, file_name):
         """
         Check if the CZI file has previously been extracted int JPGs
@@ -198,6 +209,8 @@ class ZeissAxioObserver(BasePipeline):
         else:
             return False
 
+    from pathlib import Path
+
     def construct_new_directory_paths(self, source_path, iso_timestamp, strain_id, magnification_factor, contrast_id, biological_stain_id):
         """
         Args:
@@ -207,38 +220,30 @@ class ZeissAxioObserver(BasePipeline):
             magnification_factor: The magnification factor of the file.
             contrast_id: The contrast ID of the file.
             biological_stain_id: The biological stain ID of the file.
-
         Returns:
             The constructed new directory path for MLAI images.
-
         """
         # Copy to ANACC image archive
         self.logger.debug("Calculating new ANACC and MLAI image archive paths...")
-
         # Construct new MLAI file path and check directory path exists, creating new directories if necessary
         split_iso_timestamp = iso_timestamp.split("T")[0]
         year = split_iso_timestamp[0:4]
         month = split_iso_timestamp[4:6]
         day = split_iso_timestamp[6:8]
-        new_mlai_directory_path = os.path.join(source_path, year, month, day, strain_id, magnification_factor, contrast_id, biological_stain_id)
-        fs.create_directory_if_necessary(new_mlai_directory_path)
+        new_mlai_directory_path = Path(source_path) / year / month / day / strain_id / magnification_factor / contrast_id / biological_stain_id
 
         return new_mlai_directory_path
 
-    def extract_frames(self, image, file_name, new_mlai_directory_path):
+    def extract_frames(self, image, file_name, new_mlai_image_directory_path):
         """
         Extracts frames from an image and saves them as JPG files in the MLAI archive directory.
 
         Args:
             image: The image from which to extract frames.
             file_name: The name of the original file.
-            new_mlai_directory_path: The path to the MLAI archive directory where the extracted frames will be saved.
+            new_mlai_image_directory_path: The path to the MLAI archive directory where the extracted frames will be saved.
         """
         self.logger.info(f"Extracting frames...")
-
-        # Remove the seventh filename identifier from the filename by splitting on underscore
-        file_name_parts = file_name.stem.split("_")
-        new_file_name = "_".join(file_name_parts[:6] + file_name_parts[7:])
 
         # # If CZI file has stacked images, fetch number of images
         # if len(image.shape) == 4:
@@ -246,22 +251,31 @@ class ZeissAxioObserver(BasePipeline):
         #     single_image = image.squeeze()
         #
         #     # Write new JPG image to MLAI archive
-        #     new_mlai_file_path = os.path.join(new_mlai_directory_path, new_file_name) + ".JPG"
+        #     new_mlai_file_path = os.path.join(new_mlai_image_directory_path, new_file_name) + ".JPG"
         #     self.write_image_to_disk(new_mlai_file_path, single_image, "MLAI")
 
-        if len(image.shape) == 5:
-            number_of_stacked_images = image.shape[0]
+        # if len(image.shape) == 5:
+        new_mlai_image_directory_path.mkdir(parents=True, exist_ok=True)
+        number_of_stacked_images = image.shape[0]
 
-            for i in range(number_of_stacked_images):
-                # Squeeze empty image dimensions
-                stacked_image = image[i].squeeze()
+        for i in range(number_of_stacked_images):
+            # Squeeze empty image dimensions
+            stacked_image = image[i].squeeze()
 
-                new_mlai_file_path = os.path.join(new_mlai_directory_path, new_file_name) + f"_{i + 1:03d}.JPG"
+            # new_mlai_file_path = os.path.join(new_mlai_image_directory_path, new_file_name) + f"_{i + 1:03d}.JPG"
+            new_mlai_file_path = Path(new_mlai_image_directory_path) / (file_name + f"_{i + 1:03d}.JPG")
 
-                # Write new JPG image to MLAI archive
-                self.write_image_to_disk(new_mlai_file_path, stacked_image, "MLAI")
+            # Write new JPG image to MLAI archive
+            self.write_image_to_disk(new_mlai_file_path, stacked_image, "MLAI")
 
     def write_image_to_disk(self, file_path: str, image, location: str):
+        """
+        Args:
+            file_path (str): The file path where the image will be written to.
+            image: The input image that will be written to disk.
+            location (str): The location/destination of the image.
+
+        """
         self.logger.debug(f"Writing new {location} JPG file: {file_path}")
 
         # Normalise CZI image
@@ -272,6 +286,25 @@ class ZeissAxioObserver(BasePipeline):
             self.logger.debug(f"Completed writing JPG file: {file_path}")
         else:
             self.logger.error(f"Could not write JPG image: {file_path}")
+
+    def write_data_to_disk(self, file_path: str, data: Dict):
+        """
+        Write data to a JSON file on disk.
+        Args:
+            file_path (str): The file path where the image will be written to.
+            data: The input dictionary that will be written to disk.
+        """
+
+        self.logger.debug(f"Writing new data to JSON file: {file_path}")
+
+        # Write dictionary to JSON file
+        try:
+            with open(file_path, "w") as json_file:
+                json.dump(data, json_file)
+            self.logger.debug(f"Completed writing data to JSON file: {file_path}")
+        except Exception as e:
+            self.logger.error(f"Could not write data to JSON file: {file_path}")
+            self.logger.error(e)
 
     def _process(self, data_dir: Path, config: Dict[str, Any], **kwargs: dict):
         """
