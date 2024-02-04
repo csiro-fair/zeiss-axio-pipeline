@@ -24,7 +24,7 @@ __email__ = "chris.jackett@csiro.au"
 __status__ = "Development"
 
 
-def valid_filename(filename: str) -> bool:
+def is_valid_filename(filename: str) -> bool:
     """
     Args:
         filename: A string representing the filename to be checked.
@@ -49,12 +49,12 @@ class ZeissAxioObserver(BasePipeline):
         - `_import(data_dir: Path, source_paths: List[Path], config: Dict[str, Any], **kwargs: dict) -> None`: Imports data from multiple source paths into a specified data directory.
         - `import_from_source_path(source_path: Path, data_dir: Path, config: Dict[str, Any]) -> None`: Imports data from a source path into a data directory.
         - `process_source_file(source_file: Path, data_dir: Path, config: Dict[str, Any]) -> None`: Processes a source file.
-        - `directory_path_from_filename(data_dir: Path, filename: str) -> Path`: Constructs a new directory path from a filename.
-        - `extract_image_from_file(source_file: Path, new_mlai_directory_path: Path) -> None`: Extracts an image from a source file and saves it to a specified directory.
-        - `already_extracted(new_mlai_directory_path, file_name) -> bool`: Checks if a CZI file has already been extracted.
-        - `construct_new_directory_paths(source_path, iso_timestamp, strain_id, magnification_factor, contrast_id, biological_stain_id) -> Path`: Constructs new directory paths for MLAI
+        - `path_from_filename(data_dir: Path, filename: str) -> Path`: Constructs a new directory path from a filename.
+        - `extract_image_from_file(source_file: Path, output_path: Path) -> None`: Extracts an image from a source file and saves it to a specified directory.
+        - `already_extracted(output_path, file_name) -> bool`: Checks if a CZI file has already been extracted.
+        - `construct_new_paths(source_path, iso_timestamp, strain_id, magnification_factor, contrast_id, biological_stain_id) -> Path`: Constructs new directory paths for MLAI
     * images.
-        - `extract_frames(image, file_name, new_mlai_directory_path) -> None`: Extracts frames from an image and saves them as JPG files in the MLAI archive directory.
+        - `extract_frames(image, file_name, output_path) -> None`: Extracts frames from an image and saves them as JPG files in the MLAI archive directory.
         - `write_image_to_disk(file_path: str, image, location: str) -> None`: Writes an image to disk.
     """
 
@@ -86,27 +86,13 @@ class ZeissAxioObserver(BasePipeline):
 
         self.logger.info(f"Importing data from {source_paths=} to {data_dir}")
         for source_path in source_paths:
-            self.import_from_source_path(source_path, data_dir, config)
+            if not source_path.is_dir():
+                return
 
-    def import_from_source_path(self, source_path: Path, data_dir: Path, config: Dict[str, Any]):
-        """
-        Args:
-            source_path (Path): The path of the source directory to import from.
-            data_dir (Path): The path of the data directory to store imported files.
+            for source_file in source_path.glob("**/*"):
+                self.process_source_file(source_file, data_dir, config)
 
-        """
-        if not source_path.is_dir():
-            return
-
-        for source_file in source_path.glob("**/*"):
-            self.process_source_file(source_file, data_dir, config)
-
-    def process_source_file(
-        self,
-        source_file: Path,
-        data_dir: Path,
-        config: Dict[str, Any],
-    ):
+    def process_source_file(self, source_file: Path, data_dir: Path, config: Dict[str, Any]):
         """
         Process the source file.
 
@@ -116,21 +102,20 @@ class ZeissAxioObserver(BasePipeline):
             config (Dict[str, Any]): The configuration information.
 
         """
-        if source_file.is_file() and source_file.suffix.lower() == ".czi" and f'_{config.get("collection_year")}' in source_file.name:
-            self.logger.info(f"{source_file}")
-            self.logger.info("-----------------------------------------------------------------------------------------------")
-            self.logger.info(f"Processing CZI file: {source_file.name}...")
+        is_czi_file = source_file.suffix.lower() == ".czi"
+        contains_collection_year = f'_{config.get("collection_year")}' in source_file.name
+        contains_platform_id = f'_{self.config.get("platform_id")}' in source_file.name
 
-            if not valid_filename(source_file.name):
+        if source_file.is_file() and is_czi_file and contains_collection_year and contains_platform_id:
+            self.logger.info(f"Processing file: {source_file.name}...")
+
+            if not is_valid_filename(source_file.name):
                 return
 
-            new_mlai_directory_path = self.directory_path_from_filename(data_dir, source_file.name)
-            new_mlai_image_directory_path = new_mlai_directory_path / "images"
-            new_mlai_data_directory_path = new_mlai_directory_path / "data"
-
-            if self.already_extracted(new_mlai_directory_path, source_file.name):
-                self.logger.debug(f"Imported {source_file.resolve().absolute()} -> {data_dir}")
-                return
+            output_base_dir = self.get_output_dir_from_filename(data_dir, source_file.stem)
+            output_image_dir = output_base_dir / "images"
+            output_video_dir = output_base_dir / "video"
+            output_data_dir = output_base_dir / "data"
 
             self.logger.info(f"Reading CZI file: {source_file}...")
 
@@ -139,31 +124,34 @@ class ZeissAxioObserver(BasePipeline):
                 image = czifile.imread(str(source_file))
                 # Extract CZI images and video frames
 
+                # Check that the CZI file is a video
                 if len(image.shape) == 5:
                     # Remove the seventh filename identifier from the filename by splitting on underscore
-                    file_name_parts = source_file.stem.split("_")
-                    file_name = "_".join(file_name_parts[:6] + file_name_parts[7:])
+                    # file_name_parts = source_file.stem.split("_")
+                    # output_file_name = "_".join(file_name_parts[:6] + file_name_parts[7:])
+                    # Extract filename attributes
+                    (
+                        strain_id,
+                        imaging_system_id,
+                        magnification_factor,
+                        contrast_id,
+                        channel_id,
+                        biological_stain_id,
+                        object_id,
+                        iso_timestamp,
+                    ) = source_file.stem.split("_")
+                    # Construct new directory paths
+                    output_file_name = "_".join([imaging_system_id, magnification_factor, contrast_id, biological_stain_id, strain_id, iso_timestamp])
 
-                    self.extract_frames(image, file_name, new_mlai_image_directory_path)
-                    self.extract_data(source_file, file_name, new_mlai_data_directory_path)
+                    self.extract_images(image, output_file_name, output_image_dir)
+                    video_frame_rate = self.extract_metadata(source_file, output_file_name, output_data_dir)
+                    self.extract_video(image, output_file_name, output_video_dir, video_frame_rate)
 
             except Exception as e:
                 self.logger.error(f"Error extracting file {source_file.name}")
                 self.logger.error(e)
 
-    def extract_data(self, source_file, file_name, new_mlai_data_directory_path):
-        self.logger.info(f"Extracting data...")
-
-        new_mlai_data_directory_path.mkdir(parents=True, exist_ok=True)
-        with czifile.CziFile(source_file) as czi:
-            # Get CZI file metadata as dictionary
-            metadata = czi.metadata(raw=False)
-
-            new_mlai_file_path = new_mlai_data_directory_path / (file_name + ".JSON")
-
-            self.write_data_to_disk(new_mlai_file_path, metadata)
-
-    def directory_path_from_filename(self, data_dir: Path, filename: str) -> Path:
+    def get_output_dir_from_filename(self, data_dir: Path, filename: str) -> Path:
         """
         Args:
             data_dir (Path): The root directory where the new directory paths will be created.
@@ -187,34 +175,13 @@ class ZeissAxioObserver(BasePipeline):
             iso_timestamp,
         ) = filename.split("_")
         # Construct new directory paths
-        return self.construct_new_directory_paths(data_dir, iso_timestamp, strain_id, magnification_factor, contrast_id, biological_stain_id)
+        return data_dir / magnification_factor / contrast_id / biological_stain_id / strain_id / iso_timestamp
+        # return self.construct_new_paths(data_dir, iso_timestamp, strain_id, magnification_factor, contrast_id, biological_stain_id)
 
-    def already_extracted(self, new_mlai_directory_path, file_name):
-        """
-        Check if the CZI file has previously been extracted int JPGs
-
-        Note: This assumes that if the first video frame already exists, then the entire video sequence has previously been extracted
-
-        :param new_anacc_file_path:
-        :param new_mlai_directory_path:
-        :param file_name:
-        """
-
-        # Define new MLAI image and video frame paths
-        new_mlai_image_path = os.path.join(new_mlai_directory_path, file_name) + ".JPG"
-        new_mlai_video_frame_path = os.path.join(new_mlai_directory_path, file_name) + "_001.JPG"
-
-        if os.path.isfile(new_mlai_image_path) or os.path.isfile(new_mlai_video_frame_path):
-            return True
-        else:
-            return False
-
-    from pathlib import Path
-
-    def construct_new_directory_paths(self, source_path, iso_timestamp, strain_id, magnification_factor, contrast_id, biological_stain_id):
+    def construct_new_paths(self, data_dir, magnification_factor, contrast_id, biological_stain_id, strain_id, iso_timestamp):
         """
         Args:
-            source_path: The path of the source directory where the file is located.
+            data_dir: The path of the source directory where the file is located.
             iso_timestamp: The ISO timestamp of the file.
             strain_id: The strain ID of the file.
             magnification_factor: The magnification factor of the file.
@@ -224,84 +191,138 @@ class ZeissAxioObserver(BasePipeline):
             The constructed new directory path for MLAI images.
         """
         # Copy to ANACC image archive
-        self.logger.debug("Calculating new ANACC and MLAI image archive paths...")
+        self.logger.debug("Building new output directory structure...")
         # Construct new MLAI file path and check directory path exists, creating new directories if necessary
-        split_iso_timestamp = iso_timestamp.split("T")[0]
-        year = split_iso_timestamp[0:4]
-        month = split_iso_timestamp[4:6]
-        day = split_iso_timestamp[6:8]
-        new_mlai_directory_path = Path(source_path) / year / month / day / strain_id / magnification_factor / contrast_id / biological_stain_id
+        # split_iso_timestamp = iso_timestamp.split("T")[0]
+        # year = split_iso_timestamp[0:4]
+        # month = split_iso_timestamp[4:6]
+        # day = split_iso_timestamp[6:8]
+        # output_path = data_dir / year / month / day / strain_id / magnification_factor / contrast_id / biological_stain_id
+        output_path = data_dir / magnification_factor / contrast_id / biological_stain_id / strain_id / iso_timestamp
 
-        return new_mlai_directory_path
+        return output_path
 
-    def extract_frames(self, image, file_name, new_mlai_image_directory_path):
+    def extract_images(self, image, output_image_name, output_image_dir):
         """
         Extracts frames from an image and saves them as JPG files in the MLAI archive directory.
 
         Args:
             image: The image from which to extract frames.
-            file_name: The name of the original file.
-            new_mlai_image_directory_path: The path to the MLAI archive directory where the extracted frames will be saved.
+            output_image_name: The name of the original file.
+            output_image_dir: The path to the MLAI archive directory where the extracted frames will be saved.
         """
-        self.logger.info(f"Extracting frames...")
 
-        # # If CZI file has stacked images, fetch number of images
-        # if len(image.shape) == 4:
-        #     # Squeeze empty image dimensions
-        #     single_image = image.squeeze()
-        #
-        #     # Write new JPG image to MLAI archive
-        #     new_mlai_file_path = os.path.join(new_mlai_image_directory_path, new_file_name) + ".JPG"
-        #     self.write_image_to_disk(new_mlai_file_path, single_image, "MLAI")
+        self.logger.info(f"Extracting images...")
+        output_file_path = output_image_dir / f"{output_image_name}_001.JPG"
+        if output_file_path.is_file():
+            self.logger.warning(f"File {output_file_path.resolve().absolute()} already imported")
+            return
 
-        # if len(image.shape) == 5:
-        new_mlai_image_directory_path.mkdir(parents=True, exist_ok=True)
+        output_image_dir.mkdir(parents=True, exist_ok=True)
         number_of_stacked_images = image.shape[0]
 
         for i in range(number_of_stacked_images):
             # Squeeze empty image dimensions
             stacked_image = image[i].squeeze()
 
-            # new_mlai_file_path = os.path.join(new_mlai_image_directory_path, new_file_name) + f"_{i + 1:03d}.JPG"
-            new_mlai_file_path = Path(new_mlai_image_directory_path) / (file_name + f"_{i + 1:03d}.JPG")
+            output_image_path = output_image_dir / (output_image_name + f"_{i + 1:03d}.JPG")
 
             # Write new JPG image to MLAI archive
-            self.write_image_to_disk(new_mlai_file_path, stacked_image, "MLAI")
+            self.write_image_to_disk(output_image_path, stacked_image)
 
-    def write_image_to_disk(self, file_path: Path, image, location: str):
+    def write_image_to_disk(self, output_image_path: Path, image):
         """
         Args:
-            file_path (str): The file path where the image will be written to.
+            output_image_path (str): The file path where the image will be written to.
             image: The input image that will be written to disk.
-            location (str): The location/destination of the image.
 
         """
-        self.logger.debug(f"Writing new {location} JPG file: {file_path}")
+        self.logger.debug(f"Writing new JPG file: {output_image_path}")
 
         # Normalise CZI image
         normalised_image = cv2.normalize(cv2.cvtColor(image, cv2.COLOR_BGR2RGB), None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_16U)
 
         # Write JPG to disk
-        if cv2.imwrite(str(file_path), normalised_image, [cv2.IMWRITE_JPEG_QUALITY, 90]):
-            self.logger.debug(f"Completed writing JPG file: {file_path}")
+        if cv2.imwrite(str(output_image_path), normalised_image, [cv2.IMWRITE_JPEG_QUALITY, 90]):
+            self.logger.debug(f"Completed writing JPG file: {output_image_path}")
         else:
-            self.logger.error(f"Could not write JPG image: {file_path}")
+            self.logger.error(f"Could not write JPG image: {output_image_path}")
 
-    def write_data_to_disk(self, file_path: Path, data: Dict):
+    def extract_video(self, image, output_video_name, output_video_dir, video_frame_rate):
+        self.logger.info(f"Extracting video...")
+        output_file_path = output_video_dir / f"{output_video_name}.MP4"
+        if output_file_path.is_file():
+            self.logger.warning(f"File {output_file_path.resolve().absolute()} already imported")
+            return
+
+        output_video_dir.mkdir(parents=True, exist_ok=True)
+        number_of_stacked_images = image.shape[0]
+        output_video_path = output_video_dir / (output_video_name + ".MP4")  # Define path outside the loop
+
+        try:
+            # Initialize video writer
+            out = cv2.VideoWriter(str(output_video_path), cv2.VideoWriter_fourcc(*"mp4v"), video_frame_rate, (image.shape[3], image.shape[2]))
+
+            for i in range(number_of_stacked_images):
+                # print(i)
+                # Squeeze empty image dimensions
+                stacked_image = image[i].squeeze()
+                # Normalise CZI image
+                normalised_image = cv2.normalize(
+                    cv2.cvtColor(stacked_image, cv2.COLOR_BGR2RGB), None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_16U
+                )
+
+                # Write the image to video file
+                out.write(normalised_image)
+
+            # Don't forget to release the video writer
+            out.release()
+
+            self.logger.info(f"Completed writing video to file: {output_video_path}")
+        except Exception as e:
+            self.logger.error(f"Unable to extract video due to error: {str(e)}")
+
+    def extract_metadata(self, source_file, output_metadata_name, output_data_dir) -> float:
+        self.logger.info(f"Extracting data...")
+        output_file_path = output_data_dir / f"{output_metadata_name}.JSON"
+        if output_file_path.is_file():
+            self.logger.warning(f"File {output_file_path.resolve().absolute()} already imported")
+            return
+
+        output_data_dir.mkdir(parents=True, exist_ok=True)
+        with czifile.CziFile(source_file) as czi:
+            # Get CZI file metadata as dictionary
+            metadata = czi.metadata(raw=False)
+
+            output_metadata_path = output_data_dir / (output_metadata_name + ".JSON")
+
+            self.write_metadata_to_disk(output_metadata_path, metadata)
+
+            parameters = metadata["ImageDocument"]["Metadata"]["HardwareSetting"]["ParameterCollection"]
+            if len(parameters) > 1 and float(parameters[1]["FrameRate"]["value"]) != 0.0:
+                frame_rate = float(parameters[1]["FrameRate"]["value"])
+                self.logger.info(f"Frame rate extracted from second parameter index is: {frame_rate}")
+            else:
+                frame_rate = float(parameters[0]["FrameRate"]["value"])
+                self.logger.info(f"Frame rate extracted from first parameter index is: {frame_rate}")
+            return frame_rate
+
+    def write_metadata_to_disk(self, output_metadata_path: Path, data: Dict):
         """
-        Write data to a JSON file on disk.
+        Write data to a JSON file on disk only if the file does not exist.
         Args:
-            file_path (str): The file path where the image will be written to.
+            output_metadata_path (str): The file path where the data will be written to.
             data: The input dictionary that will be written to disk.
         """
-        self.logger.debug(f"Writing new data to JSON file: {file_path}")
+
+        self.logger.debug(f"Writing new data to JSON file: {output_metadata_path}")
         # Write dictionary to JSON file
         try:
-            with open(file_path, "w") as json_file:
+            with open(output_metadata_path, "w") as json_file:
                 json.dump(data, json_file, indent=4, sort_keys=True)
-            self.logger.debug(f"Completed writing data to JSON file: {file_path}")
+            self.logger.debug(f"Completed writing data to JSON file: {output_metadata_path}")
         except Exception as e:
-            self.logger.error(f"Could not write data to JSON file: {file_path}")
+            self.logger.error(f"Could not write data to JSON file: {output_metadata_path}")
             self.logger.error(e)
 
     def _process(self, data_dir: Path, config: Dict[str, Any], **kwargs: dict):
