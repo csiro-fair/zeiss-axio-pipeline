@@ -391,7 +391,7 @@ class ZeissAxioObserver(BasePipeline):
 
         """
 
-        all_images = data_dir.glob("**/*.JPG")
+        all_images = data_dir.glob("**/images/*.JPG")
 
         # Initialize an empty set to hold unique parent directories
         unique_parent_dirs = set()
@@ -457,9 +457,8 @@ class ZeissAxioObserver(BasePipeline):
 
             # Process and add jpg files to data mapping
             for file_path in jpg_files:
-                if "_THUMB" not in file_path.name and "OVERVIEW" not in file_path.name:
-                    output_file_path = file_path.relative_to(data_dir)
-
+                output_file_path = file_path.relative_to(data_dir)
+                if file_path.parent.name == "images":
                     # TODO: This information should live in the collection.yml config then this can roll through that list
                     # Set the image creators
                     image_creators = [
@@ -470,9 +469,8 @@ class ZeissAxioObserver(BasePipeline):
                         ImagePI(name="CSIRO", orcid=""),
                     ]
 
-                    # img = self.open_image(file_path)
-                    # image_entropy = self.calculate_shannon_entropy(img)
-                    # image_average_color = self.calculate_average_image_color(img)
+                    # image_entropy = image.get_shannon_entropy(file_path)
+                    # image_average_color = image.get_average_image_color(file_path)
 
                     # TODO: Don't sort iFDO in core Marimba
 
@@ -553,113 +551,7 @@ class ZeissAxioObserver(BasePipeline):
 
                     data_mapping[file_path] = output_file_path, image_data_list
 
+                else:
+                    data_mapping[file_path] = output_file_path, None
+
         return data_mapping
-
-    def open_image(self, image_path):
-        """
-        Opens an image from the specified image file path.
-
-        Args:
-            image_path: A string representing the file path of the image to be opened.
-
-        Returns:
-            An instance of the `PIL.Image` class representing the opened image.
-
-            Returns `None` if there was an error while loading the image.
-        """
-        try:
-            img = Image.open(image_path)
-            return img
-        except IOError:
-            print("Error: Unable to load image.")
-            return None
-
-    def calculate_shannon_entropy(self, img):
-        """
-        Calculates the Shannon entropy of an image.
-
-        Args:
-            img: The image to calculate entropy for. It should be a PIL.Image object.
-
-        Returns:
-            The Shannon entropy value of the image as a float. If the image is None, None is returned.
-        """
-        if img is None:
-            return None
-
-        # Convert to grayscale
-        gray_img = img.convert("L")
-
-        # Calculate the histogram
-        histogram = np.array(gray_img.histogram(), dtype=np.float32)
-
-        # Normalize the histogram to get probabilities
-        probabilities = histogram / histogram.sum()
-
-        # Filter out zero probabilities
-        probabilities = probabilities[probabilities > 0]
-
-        # Calculate Shannon entropy
-        entropy = -np.sum(probabilities * np.log2(probabilities))
-
-        return entropy
-
-    def calculate_average_image_color(self, img):
-        """
-        Calculates the average color of an image.
-
-        Args:
-            img: The input image to calculate the average color from.
-
-        Returns:
-            A list of integers representing the average color of the image in RGB format.
-            Each element in the list corresponds to the average intensity of the Red, Green, and Blue channels, respectively.
-
-            Note: If the input image is None, None will be returned.
-        """
-        if img is None:
-            return None
-
-        # Convert the image to numpy array
-        np_img = np.array(img)
-
-        # Calculate the average color for each channel
-        average_color = np.mean(np_img, axis=(0, 1))
-
-        return list(map(int, average_color))
-
-    def to_deg(self, value, loc):
-        """
-        Converts a given value in degrees, minutes, and seconds to decimal degrees.
-
-        Args:
-            value (float): The value in degrees, minutes, and seconds to be converted.
-            loc (tuple): A tuple containing two values representing the positive and negative symbols for the location.
-
-        Returns:
-            tuple: A tuple containing four sub-tuples representing the converted decimal degrees.
-                - The first sub-tuple contains the degrees value and a denominator of 1.
-                - The second sub-tuple contains the minutes value and a denominator of 1.
-                - The third sub-tuple contains the seconds value and a denominator of 1.
-                - The fourth sub-tuple contains the location symbol.
-
-        Note:
-            The calculation of decimal degrees is based on the formula: decimal_degrees = degrees + (minutes/60) + (seconds/3600).
-
-        Example:
-            >>> obj = SomeClass()
-            >>> obj.to_deg(45.75, ('N', 'S'))
-            ((45, 1), (45, 1), (0, 1), 'N')
-
-        """
-        if value < 0:
-            loc_value = loc[1]
-        else:
-            loc_value = loc[0]
-
-        # TODO: Check why not decimal seconds
-        abs_value = abs(value)
-        deg = int(abs_value)
-        min = int((abs_value - deg) * 60)
-        sec = int((abs_value - deg - min / 60) * 3600)
-        return (deg, 1), (min, 1), (sec, 1), loc_value
