@@ -144,7 +144,7 @@ class ZeissAxioObserver(BasePipeline):
 
             output_base_dir = self.get_output_dir_from_filename(data_dir, source_file.stem)
             output_image_dir = output_base_dir / "images"
-            output_video_dir = output_base_dir / "video"
+            output_video_dir = output_base_dir / "videos"
             output_data_dir = output_base_dir / "data"
 
             self.logger.info(f"Reading CZI file: {source_file}...")
