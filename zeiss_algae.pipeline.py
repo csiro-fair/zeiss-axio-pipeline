@@ -422,7 +422,7 @@ class ZeissAxioObserver(BasePipeline):
 
             # TODO: Finalise name of this file - ask Carlie...
             thumbnail_overview_path = base_image_sequence_dir / "OVERVIEW.JPG"
-            if not thumbnail_overview_path.exists():
+            if thumb_list and not thumbnail_overview_path.exists():
                 self.logger.info(f"Creating thumbnail overview image: {str(thumbnail_overview_path)}")
                 image.create_grid_image(thumb_list, thumbnail_overview_path)
 
