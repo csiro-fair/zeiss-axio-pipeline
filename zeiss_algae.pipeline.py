@@ -457,7 +457,7 @@ class ZeissAxioObserver(BasePipeline):
 
             # Process and add jpg files to data mapping
             for file_path in jpg_files:
-                if "_THUMB" not in file_path.name and "overview" not in file_path.name:
+                if "_THUMB" not in file_path.name and "OVERVIEW" not in file_path.name:
                     output_file_path = file_path.relative_to(data_dir)
 
                     # TODO: This information should live in the collection.yml config then this can roll through that list
