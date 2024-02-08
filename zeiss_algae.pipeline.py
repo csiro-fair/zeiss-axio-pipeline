@@ -358,16 +358,26 @@ class ZeissAxioObserver(BasePipeline):
             # Initialize default frame rate value
             frame_rate = 10.0
 
-            # Search for a positive frame rate value in parameters
-            for param in parameters:
+            # The ZAP metadata provides a parameters dictionary, whereas the ZAO provides a list
+            if isinstance(parameters, dict):
                 try:
-                    temp_frame_rate = float(param.get("FrameRate", {}).get("value", 0))
+                    temp_frame_rate = float(parameters.get("FrameRate", {}).get("value", 0))
                     if temp_frame_rate > 0:
                         frame_rate = temp_frame_rate
-                        break
                 except ValueError:
-                    # In case of conversion error, ignore the current value and continue
-                    continue
+                    pass
+            # If parameters is a list
+            elif isinstance(parameters, list):
+                # Search for a positive frame rate value in parameters
+                for param in parameters:
+                    try:
+                        temp_frame_rate = float(param.get("FrameRate", {}).get("value", 0))
+                        if temp_frame_rate > 0:
+                            frame_rate = temp_frame_rate
+                            break
+                    except ValueError:
+                        # In case of conversion error, ignore the current value and continue
+                        continue
 
             self.logger.info(f"Extracted frame rate is: {frame_rate}")
             return frame_rate
