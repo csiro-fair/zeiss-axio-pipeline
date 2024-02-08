@@ -172,8 +172,6 @@ class ZeissAxioObserver(BasePipeline):
                     if len(image.shape) == 5:
                         self.extract_images(image, output_file_name, output_image_dir)
                         video_frame_rate = self.extract_metadata(source_file, output_file_name, output_data_dir)
-                        if video_frame_rate == 0.0:
-                            video_frame_rate = 10.0
                         self.extract_video(image, output_file_name, output_video_dir, video_frame_rate)
 
                 except Exception as e:
@@ -348,23 +346,30 @@ class ZeissAxioObserver(BasePipeline):
 
         """
         self.logger.info(f"Extracting data...")
-
         output_data_dir.mkdir(parents=True, exist_ok=True)
+
         with czifile.CziFile(source_file) as czi:
-            # Get CZI file metadata as dictionary
             metadata = czi.metadata(raw=False)
-
-            output_metadata_path = output_data_dir / (output_metadata_name + ".JSON")
-
+            output_metadata_path = output_data_dir / f"{output_metadata_name}.JSON"
             self.write_metadata_to_disk(output_metadata_path, metadata)
 
-            parameters = metadata["ImageDocument"]["Metadata"]["HardwareSetting"]["ParameterCollection"]
-            if len(parameters) > 1 and float(parameters[1]["FrameRate"]["value"]) != 0.0:
-                frame_rate = float(parameters[1]["FrameRate"]["value"])
-                self.logger.info(f"Frame rate extracted from second parameter index is: {frame_rate}")
-            else:
-                frame_rate = float(parameters[0]["FrameRate"]["value"])
-                self.logger.info(f"Frame rate extracted from first parameter index is: {frame_rate}")
+            parameters = metadata.get("ImageDocument", {}).get("Metadata", {}).get("HardwareSetting", {}).get("ParameterCollection", [])
+
+            # Initialize default frame rate value
+            frame_rate = 10.0
+
+            # Search for a positive frame rate value in parameters
+            for param in parameters:
+                try:
+                    temp_frame_rate = float(param.get("FrameRate", {}).get("value", 0))
+                    if temp_frame_rate > 0:
+                        frame_rate = temp_frame_rate
+                        break
+                except ValueError:
+                    # In case of conversion error, ignore the current value and continue
+                    continue
+
+            self.logger.info(f"Extracted frame rate is: {frame_rate}")
             return frame_rate
 
     def write_metadata_to_disk(self, output_metadata_path: Path, data: Dict):
