@@ -10,7 +10,6 @@ from uuid import uuid4
 import cv2
 import czifile
 import numpy as np
-from PIL import Image
 from ifdo.models import (
     ImageData,
     ImageAcquisition,
@@ -147,39 +146,37 @@ class ZeissAxioObserver(BasePipeline):
             output_video_dir = output_base_dir / "videos"
             output_data_dir = output_base_dir / "data"
 
-            self.logger.info(f"Reading CZI file: {source_file}...")
+            # Extract filename attributes
+            (
+                strain_id,
+                imaging_system_id,
+                magnification_factor,
+                contrast_id,
+                channel_id,
+                biological_stain_id,
+                object_id,
+                iso_timestamp,
+            ) = source_file.stem.split("_")
 
-            # Try to read CZI file and extract image frames
-            try:
-                image = czifile.imread(str(source_file))
-                # Extract CZI images and video frames
+            # Construct new directory paths
+            output_file_name = "_".join([imaging_system_id, magnification_factor, contrast_id, biological_stain_id, strain_id, iso_timestamp])
 
-                # Check that the CZI file is a video
-                if len(image.shape) == 5:
-                    # Remove the seventh filename identifier from the filename by splitting on underscore
-                    # file_name_parts = source_file.stem.split("_")
-                    # output_file_name = "_".join(file_name_parts[:6] + file_name_parts[7:])
-                    # Extract filename attributes
-                    (
-                        strain_id,
-                        imaging_system_id,
-                        magnification_factor,
-                        contrast_id,
-                        channel_id,
-                        biological_stain_id,
-                        object_id,
-                        iso_timestamp,
-                    ) = source_file.stem.split("_")
-                    # Construct new directory paths
-                    output_file_name = "_".join([imaging_system_id, magnification_factor, contrast_id, biological_stain_id, strain_id, iso_timestamp])
+            if not self.czi_already_processed(output_file_name, output_base_dir):
+                self.logger.info(f"Reading CZI file: {source_file}...")
 
-                    self.extract_images(image, output_file_name, output_image_dir)
-                    video_frame_rate = self.extract_metadata(source_file, output_file_name, output_data_dir)
-                    self.extract_video(image, output_file_name, output_video_dir, video_frame_rate)
+                # Try to read CZI file and extract image frames
+                try:
+                    image = czifile.imread(str(source_file))
 
-            except Exception as e:
-                self.logger.error(f"Error extracting file {source_file.name}")
-                self.logger.error(e)
+                    # Check that the CZI file is a video
+                    if len(image.shape) == 5:
+                        self.extract_images(image, output_file_name, output_image_dir)
+                        video_frame_rate = self.extract_metadata(source_file, output_file_name, output_data_dir)
+                        self.extract_video(image, output_file_name, output_video_dir, video_frame_rate)
+
+                except Exception as e:
+                    self.logger.error(f"Error extracting file {source_file.name}")
+                    self.logger.error(e)
 
     def get_output_dir_from_filename(self, data_dir: Path, filename: str) -> Path:
         """
@@ -205,6 +202,27 @@ class ZeissAxioObserver(BasePipeline):
         # Construct new directory paths
         return data_dir / magnification_factor / contrast_id / biological_stain_id / strain_id / iso_timestamp
         # return self.construct_new_paths(data_dir, iso_timestamp, strain_id, magnification_factor, contrast_id, biological_stain_id)
+
+    def czi_already_processed(self, output_image_name, output_base_dir) -> bool:
+        """
+        Checks if the CZI file for a given output image name has already been processed.
+
+        Args:
+            output_image_name (str): The name of the output image.
+            output_dir (str): The directory where the output files are stored.
+
+        Returns:
+            bool: True if the CZI file for the output image name has already been processed, False otherwise.
+        """
+        output_image_path = output_base_dir / "images" / f"{output_image_name}_001.JPG"
+        output_video_path = output_base_dir / "videos" / f"{output_image_name}.MP4"
+        output_data_path = output_base_dir / "data" / f"{output_image_name}.JSON"
+
+        if output_image_path.is_file() and output_video_path.is_file() and output_data_path.is_file():
+            self.logger.warning(f"CZI file for {output_image_name} has already been imported")
+            return True
+        else:
+            return False
 
     def construct_new_paths(self, data_dir, magnification_factor, contrast_id, biological_stain_id, strain_id, iso_timestamp):
         """
@@ -243,10 +261,6 @@ class ZeissAxioObserver(BasePipeline):
         """
 
         self.logger.info(f"Extracting images...")
-        output_file_path = output_image_dir / f"{output_image_name}_001.JPG"
-        if output_file_path.is_file():
-            self.logger.warning(f"File {output_file_path.resolve().absolute()} already imported")
-            return
 
         output_image_dir.mkdir(parents=True, exist_ok=True)
         number_of_stacked_images = image.shape[0]
@@ -290,10 +304,6 @@ class ZeissAxioObserver(BasePipeline):
 
         """
         self.logger.info(f"Extracting video...")
-        output_file_path = output_video_dir / f"{output_video_name}.MP4"
-        if output_file_path.is_file():
-            self.logger.warning(f"File {output_file_path.resolve().absolute()} already imported")
-            return
 
         output_video_dir.mkdir(parents=True, exist_ok=True)
         number_of_stacked_images = image.shape[0]
@@ -336,10 +346,6 @@ class ZeissAxioObserver(BasePipeline):
 
         """
         self.logger.info(f"Extracting data...")
-        output_file_path = output_data_dir / f"{output_metadata_name}.JSON"
-        if output_file_path.is_file():
-            self.logger.warning(f"File {output_file_path.resolve().absolute()} already imported")
-            return
 
         output_data_dir.mkdir(parents=True, exist_ok=True)
         with czifile.CziFile(source_file) as czi:
