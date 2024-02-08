@@ -172,6 +172,8 @@ class ZeissAxioObserver(BasePipeline):
                     if len(image.shape) == 5:
                         self.extract_images(image, output_file_name, output_image_dir)
                         video_frame_rate = self.extract_metadata(source_file, output_file_name, output_data_dir)
+                        if video_frame_rate == 0.0:
+                            video_frame_rate = 10.0
                         self.extract_video(image, output_file_name, output_video_dir, video_frame_rate)
 
                 except Exception as e:
