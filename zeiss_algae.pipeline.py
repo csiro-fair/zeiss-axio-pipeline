@@ -553,7 +553,7 @@ class ZeissAxioObserver(BasePipeline):
                             # image_temporal_constraints: Optional[str] = None
                             # image_time_synchronization: Optional[str] = None
                             image_item_identification_scheme="<imaging_system_id>_<magnification_factor>_<contrast_id>_<biological_stain_id>_<strain_id>_<iso_timestamp>_<image_id>.<ext>",
-                            image_curation_protocol="Processed with Marimba"
+                            image_curation_protocol="Processed with Marimba v0.3"
                             #
                             # # iFDO content (optional)
                             # image_entropy=image_entropy,
