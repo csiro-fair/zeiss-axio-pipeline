@@ -1,7 +1,9 @@
 """
 Marimba pipeline for the CSIRO ANACC Zeiss Axio microscopes
 """
+
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -10,11 +12,19 @@ from uuid import uuid4
 import cv2
 import czifile
 import numpy as np
-from ifdo.models import (ImageAcquisition, ImageCaptureMode, ImageData,
-                         ImageDeployment, ImageFaunaAttraction,
-                         ImageIllumination, ImageMarineZone, ImagePI,
-                         ImagePixelMagnitude, ImageQuality,
-                         ImageSpectralResolution)
+from ifdo.models import (
+    ImageAcquisition,
+    ImageCaptureMode,
+    ImageData,
+    ImageDeployment,
+    ImageFaunaAttraction,
+    ImageIllumination,
+    ImageMarineZone,
+    ImagePI,
+    ImagePixelMagnitude,
+    ImageQuality,
+    ImageSpectralResolution,
+)
 
 from marimba.core.pipeline import BasePipeline
 
@@ -109,8 +119,17 @@ class ZeissAxioObserver(BasePipeline):
         if not source_path.is_dir():
             return
 
-        for source_file in source_path.glob("**/*"):
-            self.process_source_file(source_file, data_dir, config)
+        with ThreadPoolExecutor() as executor:
+            futures = [
+                executor.submit(self.process_source_file, source_file, data_dir, config)
+                for source_file in source_path.glob("**/*")
+            ]
+
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    self.logger.error(f"Error processing file: {e}")
 
     def process_source_file(self, source_file: Path, data_dir: Path, config: Dict[str, Any]):
         """
@@ -150,7 +169,9 @@ class ZeissAxioObserver(BasePipeline):
             ) = source_file.stem.split("_")
 
             # Construct new directory paths
-            output_file_name = "_".join([imaging_system_id, magnification_factor, contrast_id, biological_stain_id, strain_id, iso_timestamp])
+            output_file_name = "_".join(
+                [imaging_system_id, magnification_factor, contrast_id, biological_stain_id, strain_id, iso_timestamp]
+            )
 
             # if not self.czi_already_processed(output_file_name, output_base_dir):
             self.logger.info(f"Reading CZI file: {source_file}...")
@@ -215,7 +236,9 @@ class ZeissAxioObserver(BasePipeline):
         else:
             return False
 
-    def construct_new_paths(self, data_dir, magnification_factor, contrast_id, biological_stain_id, strain_id, iso_timestamp):
+    def construct_new_paths(
+        self, data_dir, magnification_factor, contrast_id, biological_stain_id, strain_id, iso_timestamp
+    ):
         """
         Args:
             data_dir (str): The directory where the new output directory structure will be built.
@@ -277,7 +300,9 @@ class ZeissAxioObserver(BasePipeline):
         self.logger.debug(f"Writing new JPG file: {output_image_path}")
 
         # Normalise CZI image
-        normalised_image = cv2.normalize(cv2.cvtColor(image, cv2.COLOR_BGR2RGB), None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_16U)
+        normalised_image = cv2.normalize(
+            cv2.cvtColor(image, cv2.COLOR_BGR2RGB), None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_16U
+        )
 
         # Write JPG to disk
         if cv2.imwrite(str(output_image_path), normalised_image, [cv2.IMWRITE_JPEG_QUALITY, 90]):
@@ -302,7 +327,12 @@ class ZeissAxioObserver(BasePipeline):
 
         try:
             # Initialize video writer
-            out = cv2.VideoWriter(str(output_video_path), cv2.VideoWriter_fourcc(*"mp4v"), video_frame_rate, (image.shape[3], image.shape[2]))
+            out = cv2.VideoWriter(
+                str(output_video_path),
+                cv2.VideoWriter_fourcc(*"mp4v"),
+                video_frame_rate,
+                (image.shape[3], image.shape[2]),
+            )
 
             for i in range(number_of_stacked_images):
                 # print(i)
@@ -310,7 +340,12 @@ class ZeissAxioObserver(BasePipeline):
                 stacked_image = image[i].squeeze()
                 # Normalise CZI image
                 normalised_image = cv2.normalize(
-                    cv2.cvtColor(stacked_image, cv2.COLOR_BGR2RGB), None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_16U
+                    cv2.cvtColor(stacked_image, cv2.COLOR_BGR2RGB),
+                    None,
+                    alpha=0,
+                    beta=255,
+                    norm_type=cv2.NORM_MINMAX,
+                    dtype=cv2.CV_16U,
                 )
 
                 # Write the image to video file
@@ -344,7 +379,12 @@ class ZeissAxioObserver(BasePipeline):
             output_metadata_path = output_data_dir / f"{output_metadata_name}.JSON"
             self.write_metadata_to_disk(output_metadata_path, metadata)
 
-            parameters = metadata.get("ImageDocument", {}).get("Metadata", {}).get("HardwareSetting", {}).get("ParameterCollection", [])
+            parameters = (
+                metadata.get("ImageDocument", {})
+                .get("Metadata", {})
+                .get("HardwareSetting", {})
+                .get("ParameterCollection", [])
+            )
 
             # Initialize default frame rate value
             frame_rate = 10.0
@@ -440,7 +480,9 @@ class ZeissAxioObserver(BasePipeline):
                 self.logger.info(f"Creating thumbnail overview image: {str(thumbnail_overview_path)}")
                 image.create_grid_image(thumb_list, thumbnail_overview_path)
 
-    def _compose(self, data_dirs: List[Path], configs: List[Dict[str, Any]], **kwargs: dict) -> Dict[Path, Tuple[Path, List[ImageData]]]:
+    def _compose(
+        self, data_dirs: List[Path], configs: List[Dict[str, Any]], **kwargs: dict
+    ) -> Dict[Path, Tuple[Path, List[ImageData]]]:
         """
         Implementation of the Marimba package command for the Zeiss Axio Observer.
 
@@ -544,7 +586,7 @@ class ZeissAxioObserver(BasePipeline):
                             # image_temporal_constraints: Optional[str] = None
                             # image_time_synchronization: Optional[str] = None
                             image_item_identification_scheme="<imaging_system_id>_<magnification_factor>_<contrast_id>_<biological_stain_id>_<strain_id>_<iso_timestamp>_<image_id>.<ext>",
-                            image_curation_protocol="Processed with Marimba v0.3"
+                            image_curation_protocol="Processed with Marimba v0.3",
                             #
                             # # iFDO content (optional)
                             # image_entropy=image_entropy,
