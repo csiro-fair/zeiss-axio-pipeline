@@ -152,22 +152,22 @@ class ZeissAxioObserver(BasePipeline):
             # Construct new directory paths
             output_file_name = "_".join([imaging_system_id, magnification_factor, contrast_id, biological_stain_id, strain_id, iso_timestamp])
 
-            if not self.czi_already_processed(output_file_name, output_base_dir):
-                self.logger.info(f"Reading CZI file: {source_file}...")
+            # if not self.czi_already_processed(output_file_name, output_base_dir):
+            self.logger.info(f"Reading CZI file: {source_file}...")
 
-                # Try to read CZI file and extract image frames
-                try:
-                    image = czifile.imread(str(source_file))
+            # Try to read CZI file and extract image frames
+            try:
+                image = czifile.imread(str(source_file))
 
-                    # Check that the CZI file is a video
-                    if len(image.shape) == 5:
-                        self.extract_images(image, output_file_name, output_image_dir)
-                        video_frame_rate = self.extract_metadata(source_file, output_file_name, output_data_dir)
-                        self.extract_video(image, output_file_name, output_video_dir, video_frame_rate)
+                # Check that the CZI file is a video
+                if len(image.shape) == 5:
+                    self.extract_images(image, output_file_name, output_image_dir)
+                    video_frame_rate = self.extract_metadata(source_file, output_file_name, output_data_dir)
+                    self.extract_video(image, output_file_name, output_video_dir, video_frame_rate)
 
-                except Exception as e:
-                    self.logger.error(f"Error extracting file {source_file.name}")
-                    self.logger.error(e)
+            except Exception as e:
+                self.logger.error(f"Error extracting file {source_file.name}")
+                self.logger.error(e)
 
     def get_output_dir_from_filename(self, data_dir: Path, filename: str) -> Path:
         """
