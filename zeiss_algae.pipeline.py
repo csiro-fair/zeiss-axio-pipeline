@@ -4,25 +4,17 @@ Marimba pipeline for the CSIRO ANACC Zeiss Axio microscopes
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import Any, Dict, List, Tuple
 from uuid import uuid4
 
 import cv2
 import czifile
 import numpy as np
-from ifdo.models import (
-    ImageData,
-    ImageAcquisition,
-    ImageQuality,
-    ImageDeployment,
-    ImageIllumination,
-    ImagePixelMagnitude,
-    ImageMarineZone,
-    ImageSpectralResolution,
-    ImageCaptureMode,
-    ImageFaunaAttraction,
-    ImagePI,
-)
+from ifdo.models import (ImageAcquisition, ImageCaptureMode, ImageData,
+                         ImageDeployment, ImageFaunaAttraction,
+                         ImageIllumination, ImageMarineZone, ImagePI,
+                         ImagePixelMagnitude, ImageQuality,
+                         ImageSpectralResolution)
 
 from marimba.core.pipeline import BasePipeline
 
@@ -103,23 +95,22 @@ class ZeissAxioObserver(BasePipeline):
             "collection_year": 2021,
         }
 
-    def _import(self, data_dir: Path, source_paths: List[Path], config: Dict[str, Any], **kwargs: dict):
+    def _import(self, data_dir: Path, source_path: Path, config: Dict[str, Any], **kwargs: dict):
         """
         Args:
             data_dir (Path): The directory where the imported data will be saved.
-            source_paths (List[Path]): A list of paths to the source directories or files to import.
+            source_path (Path): Path to the source directories or files to import.
             config (Dict[str, Any]): A dictionary containing configuration options for the import process.
             **kwargs (dict): Additional keyword arguments.
 
         """
 
-        self.logger.info(f"Importing data from {source_paths=} to {data_dir}")
-        for source_path in source_paths:
-            if not source_path.is_dir():
-                return
+        self.logger.info(f"Importing data from {source_path=} to {data_dir}")
+        if not source_path.is_dir():
+            return
 
-            for source_file in source_path.glob("**/*"):
-                self.process_source_file(source_file, data_dir, config)
+        for source_file in source_path.glob("**/*"):
+            self.process_source_file(source_file, data_dir, config)
 
     def process_source_file(self, source_file: Path, data_dir: Path, config: Dict[str, Any]):
         """
