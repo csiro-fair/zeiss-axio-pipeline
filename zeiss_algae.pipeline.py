@@ -112,14 +112,14 @@ class ZeissAxioObserver(BasePipeline):
             source_path (Path): Path to the source directories or files to import.
             config (Dict[str, Any]): A dictionary containing configuration options for the import process.
             **kwargs (dict): Additional keyword arguments.
-
         """
-
         self.logger.info(f"Importing data from {source_path=} to {data_dir}")
         if not source_path.is_dir():
             return
 
-        with ThreadPoolExecutor() as executor:
+        max_workers = 4  # Adjust this number based on your system's capacity
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
                 executor.submit(self.process_source_file, source_file, data_dir, config)
                 for source_file in source_path.glob("**/*")
