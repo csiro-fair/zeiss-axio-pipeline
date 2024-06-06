@@ -121,7 +121,7 @@ class ZeissAxioObserver(BasePipeline):
         files_to_process = [source_file for source_file in source_path.glob("**/*") if source_file.is_file()]
 
         # Dynamically apply the multithreaded decorator
-        @multithreaded(self.logger, num_workers=2)
+        @multithreaded(max_workers=2)
         def process_source_file(item: Path, data_dir: Path, config: Dict[str, Any]):
             self.process_source_file(item, data_dir, config)
 
