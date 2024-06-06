@@ -117,7 +117,7 @@ class ZeissAxioObserver(BasePipeline):
         if not source_path.is_dir():
             return
 
-        max_workers = 4  # Adjust this number based on your system's capacity
+        max_workers = 2  # Adjust this number based on your system's capacity
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = [
