@@ -38,6 +38,7 @@ __email__ = "chris.jackett@csiro.au"
 __status__ = "Development"
 
 from marimba.lib import image
+from marimba.lib.decorators import multithreaded
 
 
 def is_valid_filename(filename: str) -> bool:
@@ -113,23 +114,20 @@ class ZeissAxioObserver(BasePipeline):
             config (Dict[str, Any]): A dictionary containing configuration options for the import process.
             **kwargs (dict): Additional keyword arguments.
         """
-        self.logger.info(f"Importing data from {source_path=} to {data_dir}")
+        self.logger.info(f"Importing data from {source_path} to {data_dir}")
         if not source_path.is_dir():
             return
 
-        max_workers = 2  # Adjust this number based on your system's capacity
+        files_to_process = [source_file for source_file in source_path.glob("**/*") if source_file.is_file()]
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [
-                executor.submit(self.process_source_file, source_file, data_dir, config)
-                for source_file in source_path.glob("**/*")
-            ]
+        # Dynamically apply the multithreaded decorator
+        @multithreaded(self.logger, num_workers=2)
+        def process_source_file(item: Path, data_dir: Path, config: Dict[str, Any]):
+            self.process_source_file(item, data_dir, config)
 
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    self.logger.error(f"Error processing file: {e}")
+        # Call the decorated function
+        process_source_file(data_dir=data_dir, config=config, items=files_to_process)
+
 
     def process_source_file(self, source_file: Path, data_dir: Path, config: Dict[str, Any]):
         """
