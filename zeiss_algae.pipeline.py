@@ -39,6 +39,7 @@ __status__ = "Development"
 
 from marimba.lib import image
 from marimba.lib.decorators import multithreaded
+from marimba.lib.parallel import multithreaded_generate_thumbnails
 
 
 def is_valid_filename(filename: str) -> bool:
@@ -127,7 +128,6 @@ class ZeissAxioObserver(BasePipeline):
 
         # Call the decorated function
         process_source_file(data_dir=data_dir, config=config, items=files_to_process)
-
 
     def process_source_file(self, source_file: Path, data_dir: Path, config: Dict[str, Any]):
         """
@@ -457,26 +457,17 @@ class ZeissAxioObserver(BasePipeline):
         unique_parent_dirs_list = list(unique_parent_dirs)
 
         for base_image_sequence_dir in unique_parent_dirs_list:
-            image_files = list(base_image_sequence_dir.glob("images/*.JPG"))
-            image_files.sort()
+            image_list = list(base_image_sequence_dir.glob("images/*.JPG"))
 
-            thumb_list = []
-            output_thumbnails_directory = base_image_sequence_dir / "thumbnails"
-            output_thumbnails_directory.mkdir(exist_ok=True)
+            # Generate thumbnails using multithreading
+            thumbnail_list = multithreaded_generate_thumbnails(
+                image_list=image_list,
+                output_directory=base_image_sequence_dir / "thumbnails",
+            )
 
-            for jpg in image_files:
-                output_filename = jpg.stem + "_THUMB" + jpg.suffix
-                output_path = output_thumbnails_directory / output_filename
-                if not output_path.exists():
-                    self.logger.info(f"Generating thumbnail image: {output_path}")
-                    image.resize_fit(jpg, 300, 300, output_path)
-                    thumb_list.append(output_path)
-
-            # TODO: Finalise name of this file - ask Carlie...
+            # Create an overview image from the generated thumbnails
             thumbnail_overview_path = base_image_sequence_dir / "OVERVIEW.JPG"
-            if thumb_list and not thumbnail_overview_path.exists():
-                self.logger.info(f"Creating thumbnail overview image: {str(thumbnail_overview_path)}")
-                image.create_grid_image(thumb_list, thumbnail_overview_path)
+            image.create_grid_image(thumbnail_list, thumbnail_overview_path)
 
     def _compose(
         self, data_dirs: List[Path], configs: List[Dict[str, Any]], **kwargs: dict
