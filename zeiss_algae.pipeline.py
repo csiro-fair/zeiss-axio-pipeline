@@ -6,7 +6,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 from uuid import uuid4
 
 import cv2
@@ -469,15 +469,16 @@ class ZeissAxioObserver(BasePipeline):
             thumbnail_overview_path = base_image_sequence_dir / "OVERVIEW.JPG"
             image.create_grid_image(thumbnail_list, thumbnail_overview_path)
 
-    def _compose(
-        self, data_dirs: List[Path], configs: List[Dict[str, Any]], **kwargs: dict
-    ) -> Dict[Path, Tuple[Path, List[ImageData]]]:
+    def _package(
+        self, data_dir: Path, config: Dict[str, Any], **kwargs: Dict[str, Any]
+    ) -> Dict[Path, Tuple[Path, Optional[ImageData], Optional[Dict[str, Any]]]]:
+        data_mapping: Dict[Path, Tuple[Path, Optional[List[ImageData]], Optional[Dict[str, Any]]]] = {}
         """
         Implementation of the Marimba package command for the Zeiss Axio Observer.
 
         Args:
-            data_dirs (List[Path]): List of data directories to process.
-            configs (List[Dict[str, Any]]): List of configurations for each data directory.
+            data_dir (Path): Data directory to process.
+            config (Dict[str, Any]): Configuration for each data directory.
             **kwargs (dict): Additional keyword arguments.
 
         Returns:
@@ -486,117 +487,116 @@ class ZeissAxioObserver(BasePipeline):
         """
         data_mapping = {}
 
-        for data_dir, config in zip(data_dirs, configs):
-            # List all files in the root directory recursively
-            all_files = list(data_dir.glob("**/*"))
+        # List all files in the root directory recursively
+        all_files = list(data_dir.glob("**/*"))
 
-            # Split the files using list comprehensions
-            jpg_files = [file for file in all_files if file.suffix.lower() == ".jpg"]
-            ancillary_files = [file for file in all_files if file.suffix.lower() != ".jpg"]
+        # Split the files using list comprehensions
+        jpg_files = [file for file in all_files if file.suffix.lower() == ".jpg"]
+        ancillary_files = [file for file in all_files if file.suffix.lower() != ".jpg"]
 
-            # Add ancillary files to data mapping
-            for file_path in ancillary_files:
-                if file_path.is_file():
-                    output_file_path = file_path.relative_to(data_dir)
-                    data_mapping[file_path] = output_file_path, None
-
-            # Process and add jpg files to data mapping
-            for file_path in jpg_files:
+        # Add ancillary files to data mapping
+        for file_path in ancillary_files:
+            if file_path.is_file():
                 output_file_path = file_path.relative_to(data_dir)
-                if file_path.parent.name == "images":
-                    # TODO: This information should live in the collection.yml config then this can roll through that list
-                    # Set the image creators
-                    image_creators = [
-                        ImagePI(name="Chris Jackett", orcid="0000-0003-1132-1558"),
-                        ImagePI(name="Ian Jameson", orcid=""),
-                        ImagePI(name="Carlie Devine", orcid=""),
-                        ImagePI(name="Emily", orcid=""),
-                        ImagePI(name="CSIRO", orcid=""),
-                    ]
+                data_mapping[file_path] = output_file_path, None, None
 
-                    # image_entropy = image.get_shannon_entropy(file_path)
-                    # image_average_color = image.get_average_image_color(file_path)
+        # Process and add jpg files to data mapping
+        for file_path in jpg_files:
+            output_file_path = file_path.relative_to(data_dir)
+            if file_path.parent.name == "images":
+                # TODO: This information should live in the collection.yml config then this can roll through that list
+                # Set the image creators
+                image_creators = [
+                    ImagePI(name="Chris Jackett", orcid="0000-0003-1132-1558"),
+                    ImagePI(name="Ian Jameson", orcid=""),
+                    ImagePI(name="Carlie Devine", orcid=""),
+                    ImagePI(name="Emily", orcid=""),
+                    ImagePI(name="CSIRO", orcid=""),
+                ]
 
-                    # TODO: Don't sort iFDO in core Marimba
+                # image_entropy = image.get_shannon_entropy(file_path)
+                # image_average_color = image.get_average_image_color(file_path)
 
-                    image_data_list = [
-                        ImageData(
-                            # iFDO core (required)
-                            # TODO: Get image_datetime from the JSON file (AcquisitionDateAndTime)
-                            image_datetime=datetime.strptime(Path(file_path).stem.split("_")[5], "%Y%m%dT%H%M%SZ"),
-                            image_latitude=-42.88742265404429,
-                            image_longitude=147.3387391318042,
-                            image_altitude=None,
-                            image_coordinate_reference_system="EPSG:4326",
-                            image_coordinate_uncertainty_meters=None,
-                            # image_context: Optional[str] = None
-                            # image_project=row["survey_id"],
-                            # image_event=f'{row["survey_id"]}_{row["deployment_number"]}',
-                            image_platform=self.config.get("platform_id"),
-                            # image_sensor=row["camera_name"],
-                            image_uuid=str(uuid4()),
-                            # image_hash_sha256=image_hash_sha256,
-                            image_pi=ImagePI(name="Chris Jackett", orcid="0000-0003-1132-1558"),
-                            image_creators=image_creators,
-                            image_license="CC BY 4.0",
-                            image_copyright="CSIRO",
-                            # image_abstract=self.config.get("abstract"),
-                            #
-                            # # iFDO capture (optional)
-                            image_acquisition=ImageAcquisition.PHOTO,
-                            image_quality=ImageQuality.PRODUCT,
-                            image_deployment=ImageDeployment.STATIONARY,
-                            # image_navigation=ImageNavigation.RECONSTRUCTED,
-                            # image_scale_reference=ImageScaleReference.NONE,
-                            image_illumination=ImageIllumination.ARTIFICIAL_LIGHT,
-                            image_pixel_mag=ImagePixelMagnitude.UM,
-                            image_marine_zone=ImageMarineZone.LABORATORY,
-                            image_spectral_resolution=ImageSpectralResolution.RGB,
-                            image_capture_mode=ImageCaptureMode.MANUAL,
-                            image_fauna_attraction=ImageFaunaAttraction.NONE,
-                            # image_area_square_meter: Optional[float] = None
-                            # image_meters_above_ground: Optional[float] = None
-                            # image_acquisition_settings: Optional[dict] = None
-                            # image_camera_yaw_degrees: Optional[float] = None
-                            # image_camera_pitch_degrees: Optional[float] = None
-                            # image_camera_roll_degrees: Optional[float] = None
-                            # image_overlap_fraction=0,
-                            image_datetime_format="%Y-%m-%d %H:%M:%S.%f",
-                            # image_camera_pose: Optional[CameraPose] = None
-                            # image_camera_housing_viewport: Optional[CameraHousingViewport] = None
-                            # image_flatport_parameters: Optional[FlatportParameters] = None
-                            # image_domeport_parameters: Optional[DomeportParameters] = None
-                            # image_camera_calibration_model: Optional[CameraCalibrationModel] = None
-                            # image_photometric_calibration: Optional[PhotometricCalibration] = None
-                            # image_objective: Optional[str] = None
-                            image_target_environment="Benthic habitat",
-                            # image_target_timescale: Optional[str] = None
-                            # image_spatial_constraints: Optional[str] = None
-                            # image_temporal_constraints: Optional[str] = None
-                            # image_time_synchronization: Optional[str] = None
-                            image_item_identification_scheme="<imaging_system_id>_<magnification_factor>_<contrast_id>_<biological_stain_id>_<strain_id>_<iso_timestamp>_<image_id>.<ext>",
-                            image_curation_protocol="Processed with Marimba v0.3",
-                            #
-                            # # iFDO content (optional)
-                            # image_entropy=image_entropy,
-                            # image_particle_count: Optional[int] = None
-                            # image_average_color=image_average_color,
-                            # image_mpeg7_colorlayout: Optional[List[float]] = None
-                            # image_mpeg7_colorstatistics: Optional[List[float]] = None
-                            # image_mpeg7_colorstructure: Optional[List[float]] = None
-                            # image_mpeg7_dominantcolor: Optional[List[float]] = None
-                            # image_mpeg7_edgehistogram: Optional[List[float]] = None
-                            # image_mpeg7_homogenoustexture: Optional[List[float]] = None
-                            # image_mpeg7_stablecolor: Optional[List[float]] = None
-                            # image_annotation_labels: Optional[List[ImageAnnotationLabel]] = None
-                            # image_annotation_creators: Optional[List[ImageAnnotationCreator]] = None
-                            # image_annotations: Optional[List[ImageAnnotation]] = None
-                        )
-                    ]
+                # TODO: Don't sort iFDO in core Marimba
 
-                    data_mapping[file_path] = output_file_path, image_data_list
+                image_data_list = [
+                    ImageData(
+                        # iFDO core (required)
+                        # TODO: Get image_datetime from the JSON file (AcquisitionDateAndTime)
+                        image_datetime=datetime.strptime(Path(file_path).stem.split("_")[5], "%Y%m%dT%H%M%SZ"),
+                        image_latitude=-42.88742265404429,
+                        image_longitude=147.3387391318042,
+                        image_altitude=None,
+                        image_coordinate_reference_system="EPSG:4326",
+                        image_coordinate_uncertainty_meters=None,
+                        # image_context: Optional[str] = None
+                        # image_project=row["survey_id"],
+                        # image_event=f'{row["survey_id"]}_{row["deployment_number"]}',
+                        image_platform=self.config.get("platform_id"),
+                        # image_sensor=row["camera_name"],
+                        image_uuid=str(uuid4()),
+                        # image_hash_sha256=image_hash_sha256,
+                        image_pi=ImagePI(name="Chris Jackett", orcid="0000-0003-1132-1558"),
+                        image_creators=image_creators,
+                        image_license="CC BY 4.0",
+                        image_copyright="CSIRO",
+                        # image_abstract=self.config.get("abstract"),
+                        #
+                        # # iFDO capture (optional)
+                        image_acquisition=ImageAcquisition.PHOTO,
+                        image_quality=ImageQuality.PRODUCT,
+                        image_deployment=ImageDeployment.STATIONARY,
+                        # image_navigation=ImageNavigation.RECONSTRUCTED,
+                        # image_scale_reference=ImageScaleReference.NONE,
+                        image_illumination=ImageIllumination.ARTIFICIAL_LIGHT,
+                        image_pixel_mag=ImagePixelMagnitude.UM,
+                        image_marine_zone=ImageMarineZone.LABORATORY,
+                        image_spectral_resolution=ImageSpectralResolution.RGB,
+                        image_capture_mode=ImageCaptureMode.MANUAL,
+                        image_fauna_attraction=ImageFaunaAttraction.NONE,
+                        # image_area_square_meter: Optional[float] = None
+                        # image_meters_above_ground: Optional[float] = None
+                        # image_acquisition_settings: Optional[dict] = None
+                        # image_camera_yaw_degrees: Optional[float] = None
+                        # image_camera_pitch_degrees: Optional[float] = None
+                        # image_camera_roll_degrees: Optional[float] = None
+                        # image_overlap_fraction=0,
+                        image_datetime_format="%Y-%m-%d %H:%M:%S.%f",
+                        # image_camera_pose: Optional[CameraPose] = None
+                        # image_camera_housing_viewport: Optional[CameraHousingViewport] = None
+                        # image_flatport_parameters: Optional[FlatportParameters] = None
+                        # image_domeport_parameters: Optional[DomeportParameters] = None
+                        # image_camera_calibration_model: Optional[CameraCalibrationModel] = None
+                        # image_photometric_calibration: Optional[PhotometricCalibration] = None
+                        # image_objective: Optional[str] = None
+                        image_target_environment="Benthic habitat",
+                        # image_target_timescale: Optional[str] = None
+                        # image_spatial_constraints: Optional[str] = None
+                        # image_temporal_constraints: Optional[str] = None
+                        # image_time_synchronization: Optional[str] = None
+                        image_item_identification_scheme="<imaging_system_id>_<magnification_factor>_<contrast_id>_<biological_stain_id>_<strain_id>_<iso_timestamp>_<image_id>.<ext>",
+                        image_curation_protocol="Processed with Marimba v0.3",
+                        #
+                        # # iFDO content (optional)
+                        # image_entropy=image_entropy,
+                        # image_particle_count: Optional[int] = None
+                        # image_average_color=image_average_color,
+                        # image_mpeg7_colorlayout: Optional[List[float]] = None
+                        # image_mpeg7_colorstatistics: Optional[List[float]] = None
+                        # image_mpeg7_colorstructure: Optional[List[float]] = None
+                        # image_mpeg7_dominantcolor: Optional[List[float]] = None
+                        # image_mpeg7_edgehistogram: Optional[List[float]] = None
+                        # image_mpeg7_homogenoustexture: Optional[List[float]] = None
+                        # image_mpeg7_stablecolor: Optional[List[float]] = None
+                        # image_annotation_labels: Optional[List[ImageAnnotationLabel]] = None
+                        # image_annotation_creators: Optional[List[ImageAnnotationCreator]] = None
+                        # image_annotations: Optional[List[ImageAnnotation]] = None
+                    )
+                ]
 
-                else:
-                    data_mapping[file_path] = output_file_path, None
+                data_mapping[file_path] = output_file_path, image_data_list, None
+
+            else:
+                data_mapping[file_path] = output_file_path, None, None
 
         return data_mapping
