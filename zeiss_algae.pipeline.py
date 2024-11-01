@@ -3,6 +3,7 @@ Marimba pipeline for the CSIRO ANACC Zeiss Axio microscopes
 """
 
 import json
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -115,19 +116,19 @@ class ZeissAxioObserver(BasePipeline):
             config (Dict[str, Any]): A dictionary containing configuration options for the import process.
             **kwargs (dict): Additional keyword arguments.
         """
-        self.logger.info(f"Importing data from {source_path} to {data_dir}")
+        self.logger.debug(f"Importing data from {source_path} to {data_dir}")
         if not source_path.is_dir():
             return
 
         files_to_process = [source_file for source_file in source_path.glob("**/*") if source_file.is_file()]
 
         # Dynamically apply the multithreaded decorator
-        @multithreaded(max_workers=2)
-        def process_source_file(item: Path, data_dir: Path, config: Dict[str, Any]):
+        @multithreaded()
+        def process_source_file(self, item: Path, thread_num: str, data_dir: Path, config: Dict[str, Any]):
             self.process_source_file(item, data_dir, config)
 
         # Call the decorated function
-        process_source_file(data_dir=data_dir, config=config, items=files_to_process)
+        process_source_file(self, items=files_to_process, data_dir=data_dir, config=config)
 
     def process_source_file(self, source_file: Path, data_dir: Path, config: Dict[str, Any]):
         """
@@ -144,7 +145,7 @@ class ZeissAxioObserver(BasePipeline):
         contains_platform_id = f'_{self.config.get("platform_id")}' in source_file.name
 
         if source_file.is_file() and is_czi_file and contains_collection_year and contains_platform_id:
-            self.logger.info(f"Processing file: {source_file.name}...")
+            self.logger.debug(f"Processing file: {source_file.name}...")
 
             if not is_valid_filename(source_file.name):
                 return
@@ -172,7 +173,7 @@ class ZeissAxioObserver(BasePipeline):
             )
 
             # if not self.czi_already_processed(output_file_name, output_base_dir):
-            self.logger.info(f"Reading CZI file: {source_file}...")
+            self.logger.debug(f"Reading CZI file: {source_file}...")
 
             # Try to read CZI file and extract image frames
             try:
@@ -272,7 +273,7 @@ class ZeissAxioObserver(BasePipeline):
             output_image_dir (pathlib.Path): The directory where the output images will be saved.
         """
 
-        self.logger.info(f"Extracting images...")
+        self.logger.debug(f"Extracting images...")
 
         output_image_dir.mkdir(parents=True, exist_ok=True)
         number_of_stacked_images = image.shape[0]
@@ -317,7 +318,7 @@ class ZeissAxioObserver(BasePipeline):
             video_frame_rate: A float representing the frame rate of the output video.
 
         """
-        self.logger.info(f"Extracting video...")
+        self.logger.debug(f"Extracting video...")
 
         output_video_dir.mkdir(parents=True, exist_ok=True)
         number_of_stacked_images = image.shape[0]
@@ -352,7 +353,7 @@ class ZeissAxioObserver(BasePipeline):
             # Don't forget to release the video writer
             out.release()
 
-            self.logger.info(f"Completed writing video to file: {output_video_path}")
+            self.logger.debug(f"Completed writing video to file: {output_video_path}")
         except Exception as e:
             self.logger.error(f"Unable to extract video due to error: {str(e)}")
 
@@ -369,7 +370,7 @@ class ZeissAxioObserver(BasePipeline):
             The frame rate value extracted from the metadata.
 
         """
-        self.logger.info(f"Extracting data...")
+        self.logger.debug(f"Extracting data...")
         output_data_dir.mkdir(parents=True, exist_ok=True)
 
         with czifile.CziFile(source_file) as czi:
@@ -408,7 +409,7 @@ class ZeissAxioObserver(BasePipeline):
                         # In case of conversion error, ignore the current value and continue
                         continue
 
-            self.logger.info(f"Extracted frame rate is: {frame_rate}")
+            self.logger.debug(f"Extracted frame rate is: {frame_rate}")
             return frame_rate
 
     def write_metadata_to_disk(self, output_metadata_path: Path, data: Dict):
@@ -442,6 +443,7 @@ class ZeissAxioObserver(BasePipeline):
             None
 
         """
+        self.logger.debug(f"Processing data in {data_dir}...")
 
         all_images = data_dir.glob("**/images/*.JPG")
 
@@ -461,6 +463,7 @@ class ZeissAxioObserver(BasePipeline):
 
             # Generate thumbnails using multithreading
             thumbnail_list = multithreaded_generate_thumbnails(
+                self,
                 image_list=image_list,
                 output_directory=base_image_sequence_dir / "thumbnails",
             )
@@ -472,7 +475,6 @@ class ZeissAxioObserver(BasePipeline):
     def _package(
         self, data_dir: Path, config: Dict[str, Any], **kwargs: Dict[str, Any]
     ) -> Dict[Path, Tuple[Path, Optional[ImageData], Optional[Dict[str, Any]]]]:
-        data_mapping: Dict[Path, Tuple[Path, Optional[List[ImageData]], Optional[Dict[str, Any]]]] = {}
         """
         Implementation of the Marimba package command for the Zeiss Axio Observer.
 
@@ -485,7 +487,7 @@ class ZeissAxioObserver(BasePipeline):
             Dict[Path, Tuple[Path, List[ImageData]]]: Data mapping containing file paths, output file paths, and image data.
 
         """
-        data_mapping = {}
+        data_mapping: Dict[Path, Tuple[Path, Optional[List[ImageData]], Optional[Dict[str, Any]]]] = {}
 
         # List all files in the root directory recursively
         all_files = list(data_dir.glob("**/*"))
@@ -495,12 +497,14 @@ class ZeissAxioObserver(BasePipeline):
         ancillary_files = [file for file in all_files if file.suffix.lower() != ".jpg"]
 
         # Add ancillary files to data mapping
+        self.logger.debug("Adding ancillary files to data mapping")
         for file_path in ancillary_files:
             if file_path.is_file():
                 output_file_path = file_path.relative_to(data_dir)
                 data_mapping[file_path] = output_file_path, None, None
 
         # Process and add jpg files to data mapping
+        self.logger.debug("Processing and adding jpg files to data mapping")
         for file_path in jpg_files:
             output_file_path = file_path.relative_to(data_dir)
             if file_path.parent.name == "images":
