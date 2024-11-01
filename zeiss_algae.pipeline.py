@@ -3,16 +3,13 @@ Marimba pipeline for the CSIRO ANACC Zeiss Axio microscopes
 """
 
 import json
-import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Optional
+from typing import Any
 from uuid import uuid4
 
 import cv2
 import czifile
-import numpy as np
 from ifdo.models import (
     ImageAcquisition,
     ImageCaptureMode,
@@ -108,7 +105,7 @@ class ZeissAxioObserver(BasePipeline):
             "collection_year": 2021,
         }
 
-    def _import(self, data_dir: Path, source_path: Path, config: Dict[str, Any], **kwargs: dict):
+    def _import(self, data_dir: Path, source_path: Path, config: dict[str, Any], **kwargs: dict):
         """
         Args:
             data_dir (Path): The directory where the imported data will be saved.
@@ -124,13 +121,13 @@ class ZeissAxioObserver(BasePipeline):
 
         # Dynamically apply the multithreaded decorator
         @multithreaded()
-        def process_source_file(self, item: Path, thread_num: str, data_dir: Path, config: Dict[str, Any]):
+        def process_source_file(self, item: Path, thread_num: str, data_dir: Path, config: dict[str, Any]):
             self.process_source_file(item, data_dir, config)
 
         # Call the decorated function
         process_source_file(self, items=files_to_process, data_dir=data_dir, config=config)
 
-    def process_source_file(self, source_file: Path, data_dir: Path, config: Dict[str, Any]):
+    def process_source_file(self, source_file: Path, data_dir: Path, config: dict[str, Any]):
         """
         Processes a source file and extracts images and videos from a CZI file.
 
@@ -169,7 +166,7 @@ class ZeissAxioObserver(BasePipeline):
 
             # Construct new directory paths
             output_file_name = "_".join(
-                [imaging_system_id, magnification_factor, contrast_id, biological_stain_id, strain_id, iso_timestamp]
+                [imaging_system_id, magnification_factor, contrast_id, biological_stain_id, strain_id, iso_timestamp],
             )
 
             # if not self.czi_already_processed(output_file_name, output_base_dir):
@@ -232,11 +229,10 @@ class ZeissAxioObserver(BasePipeline):
         if output_image_path.is_file() and output_video_path.is_file() and output_data_path.is_file():
             self.logger.warning(f"CZI file for {output_image_name} has already been imported")
             return True
-        else:
-            return False
+        return False
 
     def construct_new_paths(
-        self, data_dir, magnification_factor, contrast_id, biological_stain_id, strain_id, iso_timestamp
+        self, data_dir, magnification_factor, contrast_id, biological_stain_id, strain_id, iso_timestamp,
     ):
         """
         Args:
@@ -272,8 +268,7 @@ class ZeissAxioObserver(BasePipeline):
             output_image_name (str): The base name for the output images.
             output_image_dir (pathlib.Path): The directory where the output images will be saved.
         """
-
-        self.logger.debug(f"Extracting images...")
+        self.logger.debug("Extracting images...")
 
         output_image_dir.mkdir(parents=True, exist_ok=True)
         number_of_stacked_images = image.shape[0]
@@ -300,7 +295,7 @@ class ZeissAxioObserver(BasePipeline):
 
         # Normalise CZI image
         normalised_image = cv2.normalize(
-            cv2.cvtColor(image, cv2.COLOR_BGR2RGB), None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_16U
+            cv2.cvtColor(image, cv2.COLOR_BGR2RGB), None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_16U,
         )
 
         # Write JPG to disk
@@ -318,7 +313,7 @@ class ZeissAxioObserver(BasePipeline):
             video_frame_rate: A float representing the frame rate of the output video.
 
         """
-        self.logger.debug(f"Extracting video...")
+        self.logger.debug("Extracting video...")
 
         output_video_dir.mkdir(parents=True, exist_ok=True)
         number_of_stacked_images = image.shape[0]
@@ -355,7 +350,7 @@ class ZeissAxioObserver(BasePipeline):
 
             self.logger.debug(f"Completed writing video to file: {output_video_path}")
         except Exception as e:
-            self.logger.error(f"Unable to extract video due to error: {str(e)}")
+            self.logger.error(f"Unable to extract video due to error: {e!s}")
 
     def extract_metadata(self, source_file, output_metadata_name, output_data_dir) -> float:
         """
@@ -370,7 +365,7 @@ class ZeissAxioObserver(BasePipeline):
             The frame rate value extracted from the metadata.
 
         """
-        self.logger.debug(f"Extracting data...")
+        self.logger.debug("Extracting data...")
         output_data_dir.mkdir(parents=True, exist_ok=True)
 
         with czifile.CziFile(source_file) as czi:
@@ -412,14 +407,14 @@ class ZeissAxioObserver(BasePipeline):
             self.logger.debug(f"Extracted frame rate is: {frame_rate}")
             return frame_rate
 
-    def write_metadata_to_disk(self, output_metadata_path: Path, data: Dict):
+    def write_metadata_to_disk(self, output_metadata_path: Path, data: dict):
         """
         Write data to a JSON file on disk only if the file does not exist.
+
         Args:
             output_metadata_path (str): The file path where the data will be written to.
             data: The input dictionary that will be written to disk.
         """
-
         self.logger.debug(f"Writing new data to JSON file: {output_metadata_path}")
         # Write dictionary to JSON file
         try:
@@ -430,7 +425,7 @@ class ZeissAxioObserver(BasePipeline):
             self.logger.error(f"Could not write data to JSON file: {output_metadata_path}")
             self.logger.error(e)
 
-    def _process(self, data_dir: Path, config: Dict[str, Any], **kwargs: dict):
+    def _process(self, data_dir: Path, config: dict[str, Any], **kwargs: dict):
         """
         Implementation of the Marimba process command for the Zeiss Axio Observer.
 
@@ -473,8 +468,8 @@ class ZeissAxioObserver(BasePipeline):
             image.create_grid_image(thumbnail_list, thumbnail_overview_path)
 
     def _package(
-        self, data_dir: Path, config: Dict[str, Any], **kwargs: Dict[str, Any]
-    ) -> Dict[Path, Tuple[Path, Optional[ImageData], Optional[Dict[str, Any]]]]:
+        self, data_dir: Path, config: dict[str, Any], **kwargs: dict[str, Any],
+    ) -> dict[Path, tuple[Path, ImageData | None, dict[str, Any] | None]]:
         """
         Implementation of the Marimba package command for the Zeiss Axio Observer.
 
@@ -487,7 +482,7 @@ class ZeissAxioObserver(BasePipeline):
             Dict[Path, Tuple[Path, List[ImageData]]]: Data mapping containing file paths, output file paths, and image data.
 
         """
-        data_mapping: Dict[Path, Tuple[Path, Optional[List[ImageData]], Optional[Dict[str, Any]]]] = {}
+        data_mapping: dict[Path, tuple[Path, list[ImageData] | None, dict[str, Any] | None]] = {}
 
         # List all files in the root directory recursively
         all_files = list(data_dir.glob("**/*"))
@@ -595,7 +590,7 @@ class ZeissAxioObserver(BasePipeline):
                         # image_annotation_labels: Optional[List[ImageAnnotationLabel]] = None
                         # image_annotation_creators: Optional[List[ImageAnnotationCreator]] = None
                         # image_annotations: Optional[List[ImageAnnotation]] = None
-                    )
+                    ),
                 ]
 
                 data_mapping[file_path] = output_file_path, image_data_list, None
