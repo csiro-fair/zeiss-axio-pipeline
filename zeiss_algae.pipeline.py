@@ -1,15 +1,14 @@
-"""
-Marimba pipeline for the CSIRO ANACC Zeiss Axio microscopes
-"""
+"""Marimba Pipeline for the CSIRO ANACC Zeiss Axio microscopes."""  # noqa: N999
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import cv2
 import czifile
+import numpy as np
 from ifdo.models import (
     ImageAcquisition,
     ImageCaptureMode,
@@ -25,74 +24,69 @@ from ifdo.models import (
 )
 
 from marimba.core.pipeline import BasePipeline
-
-__author__ = "Chris Jackett"
-__copyright__ = "Copyright 2023, Environment, CSIRO"
-__credits__ = []
-__license__ = "MIT"
-__version__ = "0.1"
-__maintainer__ = "Chris Jackett"
-__email__ = "chris.jackett@csiro.au"
-__status__ = "Development"
-
 from marimba.lib import image
+from marimba.lib.concurrency import multithreaded_generate_image_thumbnails
 from marimba.lib.decorators import multithreaded
-from marimba.lib.parallel import multithreaded_generate_thumbnails
+from marimba.main import __version__
 
+EXPECTED_FILENAME_PARTS = 8
+# strain_id, imaging_system_id, magnification_factor, contrast_id,
+# channel_id, biological_stain_id, object_id, iso_timestamp
 
 def is_valid_filename(filename: str) -> bool:
     """
+    Validate if a given filename follows the expected format.
+
+    This function checks if the provided filename adheres to a specific format by verifying that it contains
+    exactly 8 parts separated by underscores.
+
     Args:
-        filename (str): The filename to be checked.
+        filename (str): The filename to be validated.
 
     Returns:
-        bool: True if the filename structure conforms with ANACC standard, False otherwise.
-
+        bool: True if the filename is valid (contains exactly 8 parts separated by underscores), False otherwise.
     """
-    # Check filename structure conforms with ANACC standard
-    return len(filename.split("_")) == 8
+    return len(filename.split("_")) == EXPECTED_FILENAME_PARTS
 
 
-class ZeissAxioObserver(BasePipeline):
+class ZeissAxioPipeline(BasePipeline):
     """
-    ZeissAxioObserver class.
-    This class is a pipeline implementation for importing and processing data from Zeiss Axio Observer microscopy systems.
+    Implements a pipeline for importing and processing data from Zeiss Axio Observer microscopy systems.
+
+    This class extends BasePipeline to provide functionality for handling Zeiss Axio Observer microscopy data. It
+    includes methods for importing, processing, and packaging data, as well as utilities for extracting images, videos,
+    and metadata from CZI files.
 
     Attributes:
-        None
+        VIDEO_DIMENSION_COUNT (int): The expected number of dimensions for video data in CZI files.
 
     Methods:
-        get_pipeline_config_schema() -> dict:
-            Returns the schema for the pipeline configuration.
-
-        get_collection_config_schema() -> dict:
-            Returns the schema for the collection configuration.
-
-        _import(data_dir: Path, source_paths: List[Path], config: Dict[str, Any], **kwargs: dict):
-            Imports data from source paths and saves it to the data directory.
-
-        process_source_file(source_file: Path, data_dir: Path, config: Dict[str, Any]):
-            Processes a source file and extracts images and videos from a CZI file.
-
-        get_output_dir_from_filename(data_dir: Path, filename: str) -> Path:
-            Generates the output directory path based on the filename attributes.
-
-        construct_new_paths(data_dir, magnification_factor, contrast_id, biological_stain_id, strain_id, iso_timestamp) -> str:
-            Constructs the output path based on the given attributes.
-
-        extract_images(image, output_image_name, output_image_dir):
-            Extracts individual images from a stacked image array and saves them to disk.
-
-        write_image_to_disk(output_image_path: Path, image):
-            Writes an image to disk in JPG format.
-
-        extract_video(image, output_video_name, output_video_dir, video_frame_rate):
-            Extracts a video from an image array and saves it to disk.
-
+        get_pipeline_config_schema(): Returns the schema for the pipeline configuration.
+        get_collection_config_schema(): Returns the schema for the collection configuration.
+        _import(data_dir, source_path, config, **kwargs): Imports data from source paths to the data directory.
+        process_source_file(source_file, data_dir, config): Processes a source file and extracts images and videos.
+        get_output_dir_from_filename(data_dir, filename): Generates the output directory path based on filename
+        attributes.
+        czi_already_processed(output_image_name, output_base_dir): Checks if a CZI file has already been processed.
+        extract_images(image, output_image_name, output_image_dir): Extracts and saves individual images from a stack.
+        write_image_to_disk(output_image_path, image): Writes an image to disk in JPG format.
+        extract_video(image, output_video_name, output_video_dir, video_frame_rate): Extracts and saves a video from
+        images.
+        extract_metadata(source_file, output_metadata_name, output_data_dir): Extracts metadata from a source file.
+        write_metadata_to_disk(output_metadata_path, data): Writes metadata to a JSON file on disk.
+        _process(data_dir, config, **kwargs): Processes data in the specified directory.
+        _package(data_dir, config, **kwargs): Packages processed data for further use or distribution.
     """
+    VIDEO_DIMENSION_COUNT = 5  # Number of dimensions in a CZI video file (time, size_c, size_z, size_y, size_x)
 
     @staticmethod
     def get_pipeline_config_schema() -> dict:
+        """
+        Get the pipeline configuration schema for the PLAOS pipeline.
+
+        Returns:
+            dict: Configuration parameters for the pipeline
+        """
         return {
             "project_pi": "Chris Jackett",
             "platform_id": "ZAO",
@@ -100,18 +94,42 @@ class ZeissAxioObserver(BasePipeline):
 
     @staticmethod
     def get_collection_config_schema() -> dict:
+        """
+        Get the collection configuration schema for the PLAOS pipeline.
+
+        Returns:
+            dict: Configuration parameters for the collection
+        """
         return {
             "data_collector": "Chris Jackett",
             "collection_year": 2021,
         }
 
-    def _import(self, data_dir: Path, source_path: Path, config: dict[str, Any], **kwargs: dict):
+    def _import(
+            self,
+            data_dir: Path,
+            source_path: Path,
+            config: dict[str, Any],
+            **kwargs: dict,
+    ) -> None:
         """
+        Import data from source directories or files to a specified Marimba Collection.
+
+        This function imports data from the provided source path to the Marimba Collection. It processes all files
+        within the source directory recursively, using multithreading for improved performance. The function uses a
+        configuration dictionary to customize the import process.
+
         Args:
             data_dir (Path): The directory where the imported data will be saved.
             source_path (Path): Path to the source directories or files to import.
             config (Dict[str, Any]): A dictionary containing configuration options for the import process.
             **kwargs (dict): Additional keyword arguments.
+
+        Raises:
+            FileNotFoundError: If the source_path does not exist.
+            PermissionError: If there are insufficient permissions to read the source files or write to the data
+            directory.
+            ValueError: If the config dictionary contains invalid or incompatible options.
         """
         self.logger.debug(f"Importing data from {source_path} to {data_dir}")
         if not source_path.is_dir():
@@ -121,13 +139,24 @@ class ZeissAxioObserver(BasePipeline):
 
         # Dynamically apply the multithreaded decorator
         @multithreaded()
-        def process_source_file(self, item: Path, thread_num: str, data_dir: Path, config: dict[str, Any]):
+        def process_source_file(
+                self: ZeissAxioPipeline,
+                thread_num: str,  # noqa: ARG001
+                item: Path,
+                data_dir: Path,
+                config: dict[str, Any],
+        ) -> None:
             self.process_source_file(item, data_dir, config)
 
         # Call the decorated function
         process_source_file(self, items=files_to_process, data_dir=data_dir, config=config)
 
-    def process_source_file(self, source_file: Path, data_dir: Path, config: dict[str, Any]):
+    def process_source_file(
+            self,
+            source_file: Path,
+            data_dir: Path,
+            config: dict[str, Any],
+    ) -> None:
         """
         Processes a source file and extracts images and videos from a CZI file.
 
@@ -165,8 +194,13 @@ class ZeissAxioObserver(BasePipeline):
             ) = source_file.stem.split("_")
 
             # Construct new directory paths
-            output_file_name = "_".join(
-                [imaging_system_id, magnification_factor, contrast_id, biological_stain_id, strain_id, iso_timestamp],
+            output_file_name = (
+                f"{imaging_system_id}_"
+                f"{magnification_factor}_"
+                f"{contrast_id}_"
+                f"{biological_stain_id}_"
+                f"{strain_id}_"
+                f"{iso_timestamp}"
             )
 
             # if not self.czi_already_processed(output_file_name, output_base_dir):
@@ -177,26 +211,34 @@ class ZeissAxioObserver(BasePipeline):
                 image = czifile.imread(str(source_file))
 
                 # Check that the CZI file is a video
-                if len(image.shape) == 5:
+                if len(image.shape) == self.VIDEO_DIMENSION_COUNT:
                     self.extract_images(image, output_file_name, output_image_dir)
                     video_frame_rate = self.extract_metadata(source_file, output_file_name, output_data_dir)
                     self.extract_video(image, output_file_name, output_video_dir, video_frame_rate)
 
             except Exception as e:
-                self.logger.error(f"Error extracting file {source_file.name}")
-                self.logger.error(e)
+                self.logger.exception(f"Error extracting file {source_file.name}")
+                self.logger.exception(e)
 
     def get_output_dir_from_filename(self, data_dir: Path, filename: str) -> Path:
         """
+        Construct output directory path from filename components.
+
+        This function parses a filename to extract various components and constructs a hierarchical directory structure
+        based on these components. The resulting path is a combination of the provided data directory and subdirectories
+        created from the filename's parsed elements.
+
         Args:
-            data_dir (Path): The root directory where the output directory will be created.
-            filename (str): The filename from which the attributes will be extracted.
+            data_dir (Path): The base directory path where the output directory will be created.
+            filename (str): The filename containing components separated by underscores.
 
         Returns:
-            Path: The generated output directory path.
+            Path: A Path object representing the constructed output directory.
 
+        Raises:
+            ValueError: If the filename does not contain the expected number of components (8) when split by
+            underscores.
         """
-        # Extract filename attributes
         (
             strain_id,
             imaging_system_id,
@@ -209,18 +251,25 @@ class ZeissAxioObserver(BasePipeline):
         ) = filename.split("_")
         # Construct new directory paths
         return data_dir / magnification_factor / contrast_id / biological_stain_id / strain_id / iso_timestamp
-        # return self.construct_new_paths(data_dir, iso_timestamp, strain_id, magnification_factor, contrast_id, biological_stain_id)
 
-    def czi_already_processed(self, output_image_name, output_base_dir) -> bool:
+    def czi_already_processed(
+            self,
+            output_image_name: str,
+            output_base_dir: Path,
+    ) -> bool:
         """
-        Checks if the CZI file for a given output image name has already been processed.
+        Check if a CZI file has already been processed.
+
+        This function determines whether a CZI file has been previously processed by checking for the existence of
+        corresponding output files (image, video, and data) in their respective directories. It uses the provided
+        output image name and base directory to construct the expected file paths.
 
         Args:
-            output_image_name (str): The name of the output image.
-            output_dir (str): The directory where the output files are stored.
+            output_image_name (str): The name of the output image file without extension.
+            output_base_dir (Path): The base directory where processed files are stored.
 
         Returns:
-            bool: True if the CZI file for the output image name has already been processed, False otherwise.
+            bool: True if the CZI file has already been processed (all output files exist), False otherwise.
         """
         output_image_path = output_base_dir / "images" / f"{output_image_name}_001.JPG"
         output_video_path = output_base_dir / "videos" / f"{output_image_name}.MP4"
@@ -231,35 +280,12 @@ class ZeissAxioObserver(BasePipeline):
             return True
         return False
 
-    def construct_new_paths(
-        self, data_dir, magnification_factor, contrast_id, biological_stain_id, strain_id, iso_timestamp,
-    ):
-        """
-        Args:
-            data_dir (str): The directory where the new output directory structure will be built.
-            magnification_factor (str): The magnification factor of the image.
-            contrast_id (str): The contrast ID of the image.
-            biological_stain_id (str): The ID of the biological stain used in the image.
-            strain_id (str): The ID of the strain of the subject in the image.
-            iso_timestamp (str): The ISO timestamp of the image.
-
-        Returns:
-            str: The constructed output path.
-
-        """
-        # Copy to ANACC image archive
-        self.logger.debug("Building new output directory structure...")
-        # Construct new MLAI file path and check directory path exists, creating new directories if necessary
-        # split_iso_timestamp = iso_timestamp.split("T")[0]
-        # year = split_iso_timestamp[0:4]
-        # month = split_iso_timestamp[4:6]
-        # day = split_iso_timestamp[6:8]
-        # output_path = data_dir / year / month / day / strain_id / magnification_factor / contrast_id / biological_stain_id
-        output_path = data_dir / magnification_factor / contrast_id / biological_stain_id / strain_id / iso_timestamp
-
-        return output_path
-
-    def extract_images(self, image, output_image_name, output_image_dir):
+    def extract_images(
+            self,
+            image: np.ndarray,
+            output_image_name: str,
+            output_image_dir: Path,
+    ) -> None:
         """
         Extracts individual images from a stacked image array and saves them to disk in a specified directory.
 
@@ -282,7 +308,11 @@ class ZeissAxioObserver(BasePipeline):
             # Write new JPG image to MLAI archive
             self.write_image_to_disk(output_image_path, stacked_image)
 
-    def write_image_to_disk(self, output_image_path: Path, image):
+    def write_image_to_disk(
+            self,
+            output_image_path: Path,
+            image: np.ndarray,
+    ) -> None:
         """
         Writes an image to disk in JPG format.
 
@@ -295,23 +325,41 @@ class ZeissAxioObserver(BasePipeline):
 
         # Normalise CZI image
         normalised_image = cv2.normalize(
-            cv2.cvtColor(image, cv2.COLOR_BGR2RGB), None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_16U,
+            cv2.cvtColor(image, cv2.COLOR_BGR2RGB), None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
+            dtype=cv2.CV_16U,
         )
 
         # Write JPG to disk
         if cv2.imwrite(str(output_image_path), normalised_image, [cv2.IMWRITE_JPEG_QUALITY, 90]):
             self.logger.debug(f"Completed writing JPG file: {output_image_path}")
         else:
-            self.logger.error(f"Could not write JPG image: {output_image_path}")
+            self.logger.exception(f"Could not write JPG image: {output_image_path}")
 
-    def extract_video(self, image, output_video_name, output_video_dir, video_frame_rate):
+    def extract_video(
+            self,
+            image: np.ndarray,
+            output_video_name: str,
+            output_video_dir: Path,
+            video_frame_rate: int,
+    ) -> None:
         """
-        Args:
-            image: A numpy array representing the image data to extract the video from.
-            output_video_name: A string representing the name of the output video file.
-            output_video_dir: A string representing the directory to save the output video file.
-            video_frame_rate: A float representing the frame rate of the output video.
+        Extract video from stacked images and save it to a file.
 
+        This function takes a stack of images, processes them, and creates a video file. It normalizes each image,
+        converts it to the appropriate color space, and writes it to the output video file. The function handles the
+        creation of the output directory and logs the process, including any errors that may occur.
+
+        Args:
+            image (numpy.ndarray): A 4D array of stacked images with shape (num_frames, height, width, channels).
+            output_video_name (str): The name of the output video file (without extension).
+            output_video_dir (pathlib.Path): The directory where the output video will be saved.
+            video_frame_rate (int): The frame rate of the output video.
+
+        Returns:
+            None
+
+        Raises:
+            Exception: If there's an error during video extraction or writing process.
         """
         self.logger.debug("Extracting video...")
 
@@ -350,9 +398,14 @@ class ZeissAxioObserver(BasePipeline):
 
             self.logger.debug(f"Completed writing video to file: {output_video_path}")
         except Exception as e:
-            self.logger.error(f"Unable to extract video due to error: {e!s}")
+            self.logger.exception(f"Unable to extract video due to error: {e!s}")
 
-    def extract_metadata(self, source_file, output_metadata_name, output_data_dir) -> float:
+    def extract_metadata(
+            self,
+            source_file: Path,
+            output_metadata_name: str,
+            output_data_dir: Path,
+    ) -> float:
         """
         Extracts metadata from a given source file and writes it to a JSON file.
 
@@ -407,7 +460,7 @@ class ZeissAxioObserver(BasePipeline):
             self.logger.debug(f"Extracted frame rate is: {frame_rate}")
             return frame_rate
 
-    def write_metadata_to_disk(self, output_metadata_path: Path, data: dict):
+    def write_metadata_to_disk(self, output_metadata_path: Path, data: dict) -> None:
         """
         Write data to a JSON file on disk only if the file does not exist.
 
@@ -418,14 +471,20 @@ class ZeissAxioObserver(BasePipeline):
         self.logger.debug(f"Writing new data to JSON file: {output_metadata_path}")
         # Write dictionary to JSON file
         try:
-            with open(output_metadata_path, "w") as json_file:
+            with Path.open(output_metadata_path, "w") as json_file:
                 json.dump(data, json_file, indent=4, sort_keys=True)
             self.logger.debug(f"Completed writing data to JSON file: {output_metadata_path}")
         except Exception as e:
-            self.logger.error(f"Could not write data to JSON file: {output_metadata_path}")
-            self.logger.error(e)
+            self.logger.exception(f"Could not write data to JSON file: {output_metadata_path}")
+            self.logger.exception(e)
 
-    def _process(self, data_dir: Path, config: dict[str, Any], **kwargs: dict):
+    # ruff: noqa: ARG002
+    def _process(
+            self,
+            data_dir: Path,
+            config: dict[str, Any],
+            **kwargs: dict,
+    ) -> None:
         """
         Implementation of the Marimba process command for the Zeiss Axio Observer.
 
@@ -457,7 +516,7 @@ class ZeissAxioObserver(BasePipeline):
             image_list = list(base_image_sequence_dir.glob("images/*.JPG"))
 
             # Generate thumbnails using multithreading
-            thumbnail_list = multithreaded_generate_thumbnails(
+            thumbnail_list = multithreaded_generate_image_thumbnails(
                 self,
                 image_list=image_list,
                 output_directory=base_image_sequence_dir / "thumbnails",
@@ -467,8 +526,12 @@ class ZeissAxioObserver(BasePipeline):
             thumbnail_overview_path = base_image_sequence_dir / "OVERVIEW.JPG"
             image.create_grid_image(thumbnail_list, thumbnail_overview_path)
 
+    # ruff: noqa: ARG002
     def _package(
-        self, data_dir: Path, config: dict[str, Any], **kwargs: dict[str, Any],
+            self,
+            data_dir: Path,
+            config: dict[str, Any],
+            **kwargs: dict[str, Any],
     ) -> dict[Path, tuple[Path, ImageData | None, dict[str, Any] | None]]:
         """
         Implementation of the Marimba package command for the Zeiss Axio Observer.
@@ -479,7 +542,8 @@ class ZeissAxioObserver(BasePipeline):
             **kwargs (dict): Additional keyword arguments.
 
         Returns:
-            Dict[Path, Tuple[Path, List[ImageData]]]: Data mapping containing file paths, output file paths, and image data.
+            Dict[Path, Tuple[Path, List[ImageData]]]: Data mapping containing file paths, output file paths, and image
+            data.
 
         """
         data_mapping: dict[Path, tuple[Path, list[ImageData] | None, dict[str, Any] | None]] = {}
@@ -503,97 +567,91 @@ class ZeissAxioObserver(BasePipeline):
         for file_path in jpg_files:
             output_file_path = file_path.relative_to(data_dir)
             if file_path.parent.name == "images":
-                # TODO: This information should live in the collection.yml config then this can roll through that list
                 # Set the image creators
                 image_creators = [
                     ImagePI(name="Chris Jackett", orcid="0000-0003-1132-1558"),
                     ImagePI(name="Ian Jameson", orcid=""),
                     ImagePI(name="Carlie Devine", orcid=""),
-                    ImagePI(name="Emily", orcid=""),
+                    ImagePI(name="Emily Gumina", orcid=""),
                     ImagePI(name="CSIRO", orcid=""),
                 ]
 
-                # image_entropy = image.get_shannon_entropy(file_path)
-                # image_average_color = image.get_average_image_color(file_path)
+                # ruff: noqa: ERA001
+                image_data_list = ImageData(
+                    # iFDO core
+                    # TODO(<cjackett>): Get image_datetime from the JSON file (AcquisitionDateAndTime)
+                    image_datetime=datetime.strptime(Path(file_path).stem.split("_")[5], "%Y%m%dT%H%M%SZ")
+                    .replace(tzinfo=timezone.utc),
+                    image_latitude=-42.88742265404429,
+                    image_longitude=147.3387391318042,
+                    image_altitude=None,
+                    image_coordinate_reference_system="EPSG:4326",
+                    image_coordinate_uncertainty_meters=None,
+                    # image_context: Optional[str] = None
+                    # image_project=row["survey_id"],
+                    # image_event=f'{row["survey_id"]}_{row["deployment_number"]}',
+                    image_platform=self.config.get("platform_id"),
+                    # image_sensor=row["camera_name"],
+                    image_uuid=str(uuid4()),
+                    # image_hash_sha256=image_hash_sha256,
+                    image_pi=ImagePI(name="Chris Jackett", orcid="0000-0003-1132-1558"),
+                    image_creators=image_creators,
+                    image_license="CC BY 4.0",
+                    image_copyright="CSIRO",
+                    # image_abstract=self.config.get("abstract"),
+                    #
+                    # # iFDO capture (optional)
+                    image_acquisition=ImageAcquisition.PHOTO,
+                    image_quality=ImageQuality.PRODUCT,
+                    image_deployment=ImageDeployment.STATIONARY,
+                    # image_navigation=ImageNavigation.RECONSTRUCTED,
+                    # image_scale_reference=ImageScaleReference.NONE,
+                    image_illumination=ImageIllumination.ARTIFICIAL_LIGHT,
+                    image_pixel_mag=ImagePixelMagnitude.UM,
+                    image_marine_zone=ImageMarineZone.LABORATORY,
+                    image_spectral_resolution=ImageSpectralResolution.RGB,
+                    image_capture_mode=ImageCaptureMode.MANUAL,
+                    image_fauna_attraction=ImageFaunaAttraction.NONE,
+                    # image_area_square_meter: Optional[float] = None
+                    # image_meters_above_ground: Optional[float] = None
+                    # image_acquisition_settings: Optional[dict] = None
+                    # image_camera_yaw_degrees: Optional[float] = None
+                    # image_camera_pitch_degrees: Optional[float] = None
+                    # image_camera_roll_degrees: Optional[float] = None
+                    # image_overlap_fraction=0,
+                    image_datetime_format="%Y-%m-%d %H:%M:%S.%f",
+                    # image_camera_pose: Optional[CameraPose] = None
+                    # image_camera_housing_viewport: Optional[CameraHousingViewport] = None
+                    # image_flatport_parameters: Optional[FlatportParameters] = None
+                    # image_domeport_parameters: Optional[DomeportParameters] = None
+                    # image_camera_calibration_model: Optional[CameraCalibrationModel] = None
+                    # image_photometric_calibration: Optional[PhotometricCalibration] = None
+                    # image_objective: Optional[str] = None
+                    image_target_environment="Benthic habitat",
+                    # image_target_timescale: Optional[str] = None
+                    # image_spatial_constraints: Optional[str] = None
+                    # image_temporal_constraints: Optional[str] = None
+                    # image_time_synchronization: Optional[str] = None
+                    image_item_identification_scheme="<imaging_system_id>_<magnification_factor>_<contrast_id>_<biological_stain_id>_<strain_id>_<iso_timestamp>_<image_id>.<ext>",
+                    image_curation_protocol=f"Processed with Marimba v{__version__}",
+                    #
+                    # # iFDO content (optional)
+                    # image_entropy=image_entropy,
+                    # image_particle_count: Optional[int] = None
+                    # image_average_color=image_average_color,
+                    # image_mpeg7_colorlayout: Optional[List[float]] = None
+                    # image_mpeg7_colorstatistics: Optional[List[float]] = None
+                    # image_mpeg7_colorstructure: Optional[List[float]] = None
+                    # image_mpeg7_dominantcolor: Optional[List[float]] = None
+                    # image_mpeg7_edgehistogram: Optional[List[float]] = None
+                    # image_mpeg7_homogenoustexture: Optional[List[float]] = None
+                    # image_mpeg7_stablecolor: Optional[List[float]] = None
+                    # image_annotation_labels: Optional[List[ImageAnnotationLabel]] = None
+                    # image_annotation_creators: Optional[List[ImageAnnotationCreator]] = None
+                    # image_annotations: Optional[List[ImageAnnotation]] = None
+                )
 
-                # TODO: Don't sort iFDO in core Marimba
-
-                image_data_list = [
-                    ImageData(
-                        # iFDO core (required)
-                        # TODO: Get image_datetime from the JSON file (AcquisitionDateAndTime)
-                        image_datetime=datetime.strptime(Path(file_path).stem.split("_")[5], "%Y%m%dT%H%M%SZ"),
-                        image_latitude=-42.88742265404429,
-                        image_longitude=147.3387391318042,
-                        image_altitude=None,
-                        image_coordinate_reference_system="EPSG:4326",
-                        image_coordinate_uncertainty_meters=None,
-                        # image_context: Optional[str] = None
-                        # image_project=row["survey_id"],
-                        # image_event=f'{row["survey_id"]}_{row["deployment_number"]}',
-                        image_platform=self.config.get("platform_id"),
-                        # image_sensor=row["camera_name"],
-                        image_uuid=str(uuid4()),
-                        # image_hash_sha256=image_hash_sha256,
-                        image_pi=ImagePI(name="Chris Jackett", orcid="0000-0003-1132-1558"),
-                        image_creators=image_creators,
-                        image_license="CC BY 4.0",
-                        image_copyright="CSIRO",
-                        # image_abstract=self.config.get("abstract"),
-                        #
-                        # # iFDO capture (optional)
-                        image_acquisition=ImageAcquisition.PHOTO,
-                        image_quality=ImageQuality.PRODUCT,
-                        image_deployment=ImageDeployment.STATIONARY,
-                        # image_navigation=ImageNavigation.RECONSTRUCTED,
-                        # image_scale_reference=ImageScaleReference.NONE,
-                        image_illumination=ImageIllumination.ARTIFICIAL_LIGHT,
-                        image_pixel_mag=ImagePixelMagnitude.UM,
-                        image_marine_zone=ImageMarineZone.LABORATORY,
-                        image_spectral_resolution=ImageSpectralResolution.RGB,
-                        image_capture_mode=ImageCaptureMode.MANUAL,
-                        image_fauna_attraction=ImageFaunaAttraction.NONE,
-                        # image_area_square_meter: Optional[float] = None
-                        # image_meters_above_ground: Optional[float] = None
-                        # image_acquisition_settings: Optional[dict] = None
-                        # image_camera_yaw_degrees: Optional[float] = None
-                        # image_camera_pitch_degrees: Optional[float] = None
-                        # image_camera_roll_degrees: Optional[float] = None
-                        # image_overlap_fraction=0,
-                        image_datetime_format="%Y-%m-%d %H:%M:%S.%f",
-                        # image_camera_pose: Optional[CameraPose] = None
-                        # image_camera_housing_viewport: Optional[CameraHousingViewport] = None
-                        # image_flatport_parameters: Optional[FlatportParameters] = None
-                        # image_domeport_parameters: Optional[DomeportParameters] = None
-                        # image_camera_calibration_model: Optional[CameraCalibrationModel] = None
-                        # image_photometric_calibration: Optional[PhotometricCalibration] = None
-                        # image_objective: Optional[str] = None
-                        image_target_environment="Benthic habitat",
-                        # image_target_timescale: Optional[str] = None
-                        # image_spatial_constraints: Optional[str] = None
-                        # image_temporal_constraints: Optional[str] = None
-                        # image_time_synchronization: Optional[str] = None
-                        image_item_identification_scheme="<imaging_system_id>_<magnification_factor>_<contrast_id>_<biological_stain_id>_<strain_id>_<iso_timestamp>_<image_id>.<ext>",
-                        image_curation_protocol="Processed with Marimba v0.3",
-                        #
-                        # # iFDO content (optional)
-                        # image_entropy=image_entropy,
-                        # image_particle_count: Optional[int] = None
-                        # image_average_color=image_average_color,
-                        # image_mpeg7_colorlayout: Optional[List[float]] = None
-                        # image_mpeg7_colorstatistics: Optional[List[float]] = None
-                        # image_mpeg7_colorstructure: Optional[List[float]] = None
-                        # image_mpeg7_dominantcolor: Optional[List[float]] = None
-                        # image_mpeg7_edgehistogram: Optional[List[float]] = None
-                        # image_mpeg7_homogenoustexture: Optional[List[float]] = None
-                        # image_mpeg7_stablecolor: Optional[List[float]] = None
-                        # image_annotation_labels: Optional[List[ImageAnnotationLabel]] = None
-                        # image_annotation_creators: Optional[List[ImageAnnotationCreator]] = None
-                        # image_annotations: Optional[List[ImageAnnotation]] = None
-                    ),
-                ]
-
-                data_mapping[file_path] = output_file_path, image_data_list, None
+                data_mapping[file_path] = output_file_path, [image_data_list], None
 
             else:
                 data_mapping[file_path] = output_file_path, None, None
