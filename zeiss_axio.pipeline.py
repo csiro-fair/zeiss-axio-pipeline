@@ -22,6 +22,7 @@ from ifdo.models import (
     ImageQuality,
     ImageSpectralResolution,
 )
+from numpy.typing import NDArray
 
 from marimba.core.pipeline import BasePipeline
 from marimba.lib import image
@@ -80,7 +81,7 @@ class ZeissAxioPipeline(BasePipeline):
     VIDEO_DIMENSION_COUNT = 5  # Number of dimensions in a CZI video file (time, size_c, size_z, size_y, size_x)
 
     @staticmethod
-    def get_pipeline_config_schema() -> dict:
+    def get_pipeline_config_schema() -> dict[str, str]:
         """
         Get the pipeline configuration schema for the PLAOS pipeline.
 
@@ -93,7 +94,7 @@ class ZeissAxioPipeline(BasePipeline):
         }
 
     @staticmethod
-    def get_collection_config_schema() -> dict:
+    def get_collection_config_schema() -> dict[str, str]:
         """
         Get the collection configuration schema for the PLAOS pipeline.
 
@@ -102,7 +103,7 @@ class ZeissAxioPipeline(BasePipeline):
         """
         return {
             "data_collector": "Chris Jackett",
-            "collection_year": 2021,
+            "collection_year": "2021",
         }
 
     def _import(
@@ -110,7 +111,7 @@ class ZeissAxioPipeline(BasePipeline):
             data_dir: Path,
             source_path: Path,
             config: dict[str, Any],
-            **kwargs: dict,
+            **kwargs: dict[str, Any],
     ) -> None:
         """
         Import data from source directories or files to a specified Marimba Collection.
@@ -139,7 +140,7 @@ class ZeissAxioPipeline(BasePipeline):
 
         # Dynamically apply the multithreaded decorator
         @multithreaded()
-        def process_source_file(
+        def process_file(
                 self: ZeissAxioPipeline,
                 thread_num: str,  # noqa: ARG001
                 item: Path,
@@ -149,7 +150,12 @@ class ZeissAxioPipeline(BasePipeline):
             self.process_source_file(item, data_dir, config)
 
         # Call the decorated function
-        process_source_file(self, items=files_to_process, data_dir=data_dir, config=config)
+        process_file(
+            self,
+            items=files_to_process,
+            data_dir=data_dir,
+            config=config,
+        )  # type: ignore[call-arg]
 
     def process_source_file(
             self,
@@ -166,9 +172,18 @@ class ZeissAxioPipeline(BasePipeline):
             config (Dict[str, Any]): A dictionary containing the configuration parameters.
 
         """
-        is_czi_file = source_file.suffix.lower() == ".czi"
-        contains_collection_year = f'_{config.get("collection_year")}' in source_file.name
+        # Validate that self.config exists
+        if self.config is None:
+            raise ValueError("Pipeline configuration is missing")
+
+        # Get platform_id from config and validate it
+        platform_id = self.config.get("platform_id")
+        if not isinstance(platform_id, str):
+            raise TypeError("platform_id must be provided in the pipeline config and must be a string")
+
         contains_platform_id = f'_{self.config.get("platform_id")}' in source_file.name
+        contains_collection_year = f'_{config.get("collection_year")}' in source_file.name
+        is_czi_file = source_file.suffix.lower() == ".czi"
 
         if source_file.is_file() and is_czi_file and contains_collection_year and contains_platform_id:
             self.logger.debug(f"Processing file: {source_file.name}...")
@@ -282,7 +297,7 @@ class ZeissAxioPipeline(BasePipeline):
 
     def extract_images(
             self,
-            image: np.ndarray,
+            image: NDArray[np.uint16],
             output_image_name: str,
             output_image_dir: Path,
     ) -> None:
@@ -311,7 +326,7 @@ class ZeissAxioPipeline(BasePipeline):
     def write_image_to_disk(
             self,
             output_image_path: Path,
-            image: np.ndarray,
+            image: NDArray[np.uint16],
     ) -> None:
         """
         Writes an image to disk in JPG format.
@@ -323,24 +338,31 @@ class ZeissAxioPipeline(BasePipeline):
         """
         self.logger.debug(f"Writing new JPG file: {output_image_path}")
 
-        # Normalise CZI image
-        normalised_image = cv2.normalize(
-            cv2.cvtColor(image, cv2.COLOR_BGR2RGB), None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX,
+        # Convert to RGB and normalize
+        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # Create output array with same type as input
+        dst = np.empty_like(rgb_image)
+        normalized_image = cv2.normalize(
+            src=rgb_image,
+            dst=dst,
+            alpha=0.0,
+            beta=255.0,
+            norm_type=cv2.NORM_MINMAX,
             dtype=cv2.CV_16U,
         )
 
         # Write JPG to disk
-        if cv2.imwrite(str(output_image_path), normalised_image, [cv2.IMWRITE_JPEG_QUALITY, 90]):
+        if cv2.imwrite(str(output_image_path), normalized_image, [int(cv2.IMWRITE_JPEG_QUALITY), 90]):
             self.logger.debug(f"Completed writing JPG file: {output_image_path}")
         else:
             self.logger.exception(f"Could not write JPG image: {output_image_path}")
 
     def extract_video(
             self,
-            image: np.ndarray,
+            image: NDArray[np.uint16],
             output_video_name: str,
             output_video_dir: Path,
-            video_frame_rate: int,
+            video_frame_rate: float,
     ) -> None:
         """
         Extract video from stacked images and save it to a file.
@@ -353,7 +375,7 @@ class ZeissAxioPipeline(BasePipeline):
             image (numpy.ndarray): A 4D array of stacked images with shape (num_frames, height, width, channels).
             output_video_name (str): The name of the output video file (without extension).
             output_video_dir (pathlib.Path): The directory where the output video will be saved.
-            video_frame_rate (int): The frame rate of the output video.
+            video_frame_rate (float): The frame rate of the output video.
 
         Returns:
             None
@@ -368,30 +390,31 @@ class ZeissAxioPipeline(BasePipeline):
         output_video_path = output_video_dir / (output_video_name + ".MP4")  # Define path outside the loop
 
         try:
-            # Initialize video writer
+            # Use cv2.cv.CV_FOURCC for older versions or direct integer value for MP4 codec
+            fourcc = 0x00000020  # This is equivalent to 'mp4v' codec
             out = cv2.VideoWriter(
                 str(output_video_path),
-                cv2.VideoWriter_fourcc(*"mp4v"),
-                video_frame_rate,
+                fourcc,
+                int(video_frame_rate),
                 (image.shape[3], image.shape[2]),
             )
 
             for i in range(number_of_stacked_images):
-                # print(i)
-                # Squeeze empty image dimensions
                 stacked_image = image[i].squeeze()
-                # Normalise CZI image
-                normalised_image = cv2.normalize(
-                    cv2.cvtColor(stacked_image, cv2.COLOR_BGR2RGB),
-                    None,
-                    alpha=0,
-                    beta=255,
+                rgb_image = cv2.cvtColor(stacked_image, cv2.COLOR_BGR2RGB)
+
+                # Create output array with same type as input
+                dst = np.empty_like(rgb_image)
+                normalized_image = cv2.normalize(
+                    src=rgb_image,
+                    dst=dst,
+                    alpha=0.0,
+                    beta=255.0,
                     norm_type=cv2.NORM_MINMAX,
                     dtype=cv2.CV_16U,
                 )
 
-                # Write the image to video file
-                out.write(normalised_image)
+                out.write(normalized_image)
 
             # Don't forget to release the video writer
             out.release()
@@ -460,7 +483,7 @@ class ZeissAxioPipeline(BasePipeline):
             self.logger.debug(f"Extracted frame rate is: {frame_rate}")
             return frame_rate
 
-    def write_metadata_to_disk(self, output_metadata_path: Path, data: dict) -> None:
+    def write_metadata_to_disk(self, output_metadata_path: Path, data: dict[str, Any]) -> None:
         """
         Write data to a JSON file on disk only if the file does not exist.
 
@@ -483,7 +506,7 @@ class ZeissAxioPipeline(BasePipeline):
             self,
             data_dir: Path,
             config: dict[str, Any],
-            **kwargs: dict,
+            **kwargs: dict[str, Any],
     ) -> None:
         """
         Implementation of the Marimba process command for the Zeiss Axio Observer.
@@ -567,14 +590,24 @@ class ZeissAxioPipeline(BasePipeline):
         for file_path in jpg_files:
             output_file_path = file_path.relative_to(data_dir)
             if file_path.parent.name == "images":
-                # Set the image creators
+                # Set the image pi and creators
+                image_pi = ImagePI(name="Chris Jackett", orcid="0000-0003-1132-1558")
                 image_creators = [
-                    ImagePI(name="Chris Jackett", orcid="0000-0003-1132-1558"),
+                    image_pi,
                     ImagePI(name="Ian Jameson", orcid=""),
                     ImagePI(name="Carlie Devine", orcid=""),
                     ImagePI(name="Emily Gumina", orcid=""),
                     ImagePI(name="CSIRO", orcid=""),
                 ]
+
+                # Validate that self.config exists
+                if self.config is None:
+                    raise ValueError("Pipeline configuration is missing")
+
+                # Get platform_id from config and validate it
+                platform_id = self.config.get("platform_id")
+                if not isinstance(platform_id, str):
+                    raise TypeError("platform_id must be provided in the pipeline config and must be a string")
 
                 # ruff: noqa: ERA001
                 image_data_list = ImageData(
@@ -590,7 +623,7 @@ class ZeissAxioPipeline(BasePipeline):
                     # image_context: Optional[str] = None
                     # image_project=row["survey_id"],
                     # image_event=f'{row["survey_id"]}_{row["deployment_number"]}',
-                    image_platform=self.config.get("platform_id"),
+                    image_platform=platform_id,
                     # image_sensor=row["camera_name"],
                     image_uuid=str(uuid4()),
                     # image_hash_sha256=image_hash_sha256,
