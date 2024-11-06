@@ -22,13 +22,12 @@ from ifdo.models import (
     ImageQuality,
     ImageSpectralResolution,
 )
-from numpy.typing import NDArray
-
 from marimba.core.pipeline import BasePipeline
 from marimba.lib import image
 from marimba.lib.concurrency import multithreaded_generate_image_thumbnails
 from marimba.lib.decorators import multithreaded
 from marimba.main import __version__
+from numpy.typing import NDArray
 
 EXPECTED_FILENAME_PARTS = 8
 # strain_id, imaging_system_id, magnification_factor, contrast_id,
@@ -139,7 +138,7 @@ class ZeissAxioPipeline(BasePipeline):
         files_to_process = [source_file for source_file in source_path.glob("**/*") if source_file.is_file()]
 
         # Dynamically apply the multithreaded decorator
-        @multithreaded()
+        @multithreaded()  # type: ignore[misc]
         def process_file(
                 self: ZeissAxioPipeline,
                 thread_num: str,  # noqa: ARG001
@@ -390,11 +389,10 @@ class ZeissAxioPipeline(BasePipeline):
         output_video_path = output_video_dir / (output_video_name + ".MP4")  # Define path outside the loop
 
         try:
-            # Use cv2.cv.CV_FOURCC for older versions or direct integer value for MP4 codec
-            fourcc = 0x00000020  # This is equivalent to 'mp4v' codec
+            # Initialize video writer
             out = cv2.VideoWriter(
                 str(output_video_path),
-                fourcc,
+                cv2.VideoWriter_fourcc(*"mp4v"),  # type: ignore[attr-defined]
                 int(video_frame_rate),
                 (image.shape[3], image.shape[2]),
             )
