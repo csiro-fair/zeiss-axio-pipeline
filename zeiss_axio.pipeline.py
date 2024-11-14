@@ -80,7 +80,7 @@ class ZeissAxioPipeline(BasePipeline):
     VIDEO_DIMENSION_COUNT = 5  # Number of dimensions in a CZI video file (time, size_c, size_z, size_y, size_x)
 
     @staticmethod
-    def get_pipeline_config_schema() -> dict[str, str]:
+    def get_pipeline_config_schema() -> dict[str, Any]:
         """
         Get the pipeline configuration schema for the PLAOS pipeline.
 
@@ -93,7 +93,7 @@ class ZeissAxioPipeline(BasePipeline):
         }
 
     @staticmethod
-    def get_collection_config_schema() -> dict[str, str]:
+    def get_collection_config_schema() -> dict[str, Any]:
         """
         Get the collection configuration schema for the PLAOS pipeline.
 
@@ -608,7 +608,7 @@ class ZeissAxioPipeline(BasePipeline):
                     raise TypeError("platform_id must be provided in the pipeline config and must be a string")
 
                 # ruff: noqa: ERA001
-                image_data_list = ImageData(
+                image_data = ImageData(
                     # iFDO core
                     # TODO(<cjackett>): Get image_datetime from the JSON file (AcquisitionDateAndTime)
                     image_datetime=datetime.strptime(Path(file_path).stem.split("_")[5], "%Y%m%dT%H%M%SZ")
@@ -682,7 +682,7 @@ class ZeissAxioPipeline(BasePipeline):
                     # image_annotations: Optional[List[ImageAnnotation]] = None
                 )
 
-                data_mapping[file_path] = output_file_path, [image_data_list], None
+                data_mapping[file_path] = output_file_path, [image_data], None
 
             else:
                 data_mapping[file_path] = output_file_path, None, None
