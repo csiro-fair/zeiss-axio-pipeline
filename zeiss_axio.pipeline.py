@@ -548,9 +548,14 @@ class ZeissAxioPipeline(BasePipeline):
                 output_directory=base_image_sequence_dir / "thumbnails",
             )
 
-            # Create an overview image from the generated thumbnails
-            thumbnail_overview_path = base_image_sequence_dir / "OVERVIEW.JPG"
-            image.create_grid_image(thumbnail_list, thumbnail_overview_path)
+            # Create overview image name from the first image's identifiers
+            first_image = image_list[0]
+            identifiers = first_image.stem.rsplit('_', 1)[0].split('_')
+            overview_name = f"{identifiers[0]}_{identifiers[1]}_{identifiers[2]}_{identifiers[3]}_{identifiers[4]}_{identifiers[5]}_OVERVIEW.JPG"
+
+            # Generate the overview image
+            overview_path = base_image_sequence_dir / overview_name
+            image.create_grid_image(thumbnail_list, overview_path)
 
     # ruff: noqa: ARG002
     def _package(
