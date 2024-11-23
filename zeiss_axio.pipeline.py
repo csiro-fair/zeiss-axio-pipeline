@@ -22,12 +22,13 @@ from ifdo.models import (
     ImageQuality,
     ImageSpectralResolution,
 )
+from numpy.typing import NDArray
+
 from marimba.core.pipeline import BasePipeline
 from marimba.lib import image
 from marimba.lib.concurrency import multithreaded_generate_image_thumbnails
 from marimba.lib.decorators import multithreaded
 from marimba.main import __version__
-from numpy.typing import NDArray
 
 EXPECTED_FILENAME_PARTS = 8
 # strain_id, imaging_system_id, magnification_factor, contrast_id,
@@ -191,9 +192,9 @@ class ZeissAxioPipeline(BasePipeline):
                 return
 
             output_base_dir = self.get_output_dir_from_filename(data_dir, source_file.stem)
+            output_data_dir = output_base_dir / "data"
             output_image_dir = output_base_dir / "images"
             output_video_dir = output_base_dir / "videos"
-            output_data_dir = output_base_dir / "data"
 
             # Extract filename attributes
             (
@@ -357,69 +358,73 @@ class ZeissAxioPipeline(BasePipeline):
             self.logger.exception(f"Could not write JPG image: {output_image_path}")
 
     def extract_video(
-            self,
-            image: NDArray[np.uint16],
-            output_video_name: str,
-            output_video_dir: Path,
-            video_frame_rate: float,
+        self,
+        image: NDArray[np.uint16],
+        output_video_name: str,
+        output_video_dir: Path,
+        video_frame_rate: float,
     ) -> None:
         """
         Extract video from stacked images and save it to a file.
 
-        This function takes a stack of images, processes them, and creates a video file. It normalizes each image,
-        converts it to the appropriate color space, and writes it to the output video file. The function handles the
-        creation of the output directory and logs the process, including any errors that may occur.
+        This function takes a stack of images, processes them, and creates a video file.
+        It properly handles color conversion and normalization to maintain image quality.
 
         Args:
             image (numpy.ndarray): A 4D array of stacked images with shape (num_frames, height, width, channels).
             output_video_name (str): The name of the output video file (without extension).
             output_video_dir (pathlib.Path): The directory where the output video will be saved.
             video_frame_rate (float): The frame rate of the output video.
-
-        Returns:
-            None
-
-        Raises:
-            Exception: If there's an error during video extraction or writing process.
         """
         self.logger.debug("Extracting video...")
 
         output_video_dir.mkdir(parents=True, exist_ok=True)
         number_of_stacked_images = image.shape[0]
-        output_video_path = output_video_dir / (output_video_name + ".MP4")  # Define path outside the loop
+        output_video_path = output_video_dir / (output_video_name + ".MP4")
 
         try:
-            # Initialize video writer
+            # Get the correct dimensions from the input image
+            height = image.shape[2]  # Original height
+            width = image.shape[3]  # Original width
+
+            # Initialize video writer with mp4v codec
             out = cv2.VideoWriter(
                 str(output_video_path),
-                cv2.VideoWriter_fourcc(*"mp4v"),  # type: ignore[attr-defined]
+                cv2.VideoWriter_fourcc(*"mp4v"),
                 int(video_frame_rate),
-                (image.shape[3], image.shape[2]),
+                (width, height),
             )
 
             for i in range(number_of_stacked_images):
-                stacked_image = image[i].squeeze()
-                rgb_image = cv2.cvtColor(stacked_image, cv2.COLOR_BGR2RGB)
+                # Extract and squeeze the frame to remove singleton dimensions
+                frame = image[i].squeeze()
 
-                # Create output array with same type as input
-                dst = np.empty_like(rgb_image)
-                normalized_image = cv2.normalize(
-                    src=rgb_image,
-                    dst=dst,
-                    alpha=0.0,
-                    beta=255.0,
+                # Convert from uint16 to uint8 with proper scaling
+                frame_normalized = cv2.normalize(
+                    frame,
+                    None,
+                    alpha=0,
+                    beta=255,
                     norm_type=cv2.NORM_MINMAX,
-                    dtype=cv2.CV_16U,
+                    dtype=cv2.CV_8U,
                 )
 
-                out.write(normalized_image)
+                # Convert from RGB to BGR for OpenCV
+                frame_bgr = cv2.cvtColor(frame_normalized, cv2.COLOR_RGB2BGR)
 
-            # Don't forget to release the video writer
+                # Write the frame
+                out.write(frame_bgr)
+
+            # Release the video writer
             out.release()
+            self.logger.debug(f"Successfully wrote video to file: {output_video_path}")
 
-            self.logger.debug(f"Completed writing video to file: {output_video_path}")
         except Exception as e:
-            self.logger.exception(f"Unable to extract video due to error: {e!s}")
+            self.logger.exception(f"Error during video extraction: {e}")
+            # Make sure to release the writer even if there's an error
+            if "out" in locals():
+                out.release()
+            raise
 
     def extract_metadata(
             self,
