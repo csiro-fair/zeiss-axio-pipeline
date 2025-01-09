@@ -1,4 +1,4 @@
-"""Marimba Pipeline for the CSIRO ANACC Zeiss Axio microscopes."""  # noqa: N999
+"""Marimba Pipeline for the CSIRO ANACC Zeiss Axio microscopes."""  # noqa: INP001
 
 import json
 from datetime import datetime, timezone
@@ -12,18 +12,18 @@ import numpy as np
 from ifdo.models import (
     ImageAcquisition,
     ImageCaptureMode,
+    ImageContext,
+    ImageCreator,
     ImageData,
     ImageDeployment,
     ImageFaunaAttraction,
     ImageIllumination,
+    ImageLicense,
     ImageMarineZone,
     ImagePI,
     ImagePixelMagnitude,
     ImageQuality,
     ImageSpectralResolution,
-    ImageContext,
-    ImageLicense,
-    ImageCreator,
 )
 from numpy.typing import NDArray
 
@@ -35,7 +35,8 @@ from marimba.lib.concurrency import multithreaded_generate_image_thumbnails
 from marimba.lib.decorators import multithreaded
 from marimba.main import __version__
 
-# strain_id, imaging_system_id, magnification_factor, contrast_id,
+# Number of underscore-separated parts in microscopy filenames.
+# Required format: strain_id, imaging_system_id, magnification_factor, contrast_id,
 # channel_id, biological_stain_id, object_id, iso_timestamp
 EXPECTED_FILENAME_PARTS = 8
 
@@ -92,6 +93,16 @@ class ZeissAxioPipeline(BasePipeline):
         *,
         dry_run: bool = False,
     ) -> None:
+        """
+        Initialize a new Pipeline instance.
+
+        Args:
+            root_path (str | Path): Base directory path where the pipeline will store its data and configuration files.
+            config (dict[str, Any] | None, optional): Pipeline configuration dictionary. If None, default configuration
+             will be used. Defaults to None.
+            dry_run (bool, optional): If True, prevents any filesystem modifications. Useful for validation and testing.
+             Defaults to False.
+        """
         super().__init__(
             root_path,
             config,
@@ -569,8 +580,16 @@ class ZeissAxioPipeline(BasePipeline):
 
             # Create overview image name from the first image's identifiers
             first_image = image_list[0]
-            identifiers = first_image.stem.rsplit('_', 1)[0].split('_')
-            overview_name = f"{identifiers[0]}_{identifiers[1]}_{identifiers[2]}_{identifiers[3]}_{identifiers[4]}_{identifiers[5]}_OVERVIEW.JPG"
+            identifiers = first_image.stem.rsplit("_", 1)[0].split("_")
+            overview_name = (
+                f"{identifiers[0]}_"
+                f"{identifiers[1]}_"
+                f"{identifiers[2]}_"
+                f"{identifiers[3]}_"
+                f"{identifiers[4]}_"
+                f"{identifiers[5]}_"
+                f"OVERVIEW.JPG"
+            )
 
             # Generate the overview image
             overview_path = base_image_sequence_dir / overview_name
