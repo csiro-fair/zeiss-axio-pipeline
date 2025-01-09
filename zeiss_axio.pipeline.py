@@ -21,18 +21,23 @@ from ifdo.models import (
     ImagePixelMagnitude,
     ImageQuality,
     ImageSpectralResolution,
+    ImageContext,
+    ImageLicense,
+    ImageCreator,
 )
 from numpy.typing import NDArray
 
 from marimba.core.pipeline import BasePipeline
+from marimba.core.schemas.base import BaseMetadata
+from marimba.core.schemas.ifdo import iFDOMetadata
 from marimba.lib import image
 from marimba.lib.concurrency import multithreaded_generate_image_thumbnails
 from marimba.lib.decorators import multithreaded
 from marimba.main import __version__
 
-EXPECTED_FILENAME_PARTS = 8
 # strain_id, imaging_system_id, magnification_factor, contrast_id,
 # channel_id, biological_stain_id, object_id, iso_timestamp
+EXPECTED_FILENAME_PARTS = 8
 
 def is_valid_filename(filename: str) -> bool:
     """
@@ -80,6 +85,20 @@ class ZeissAxioPipeline(BasePipeline):
     """
     VIDEO_DIMENSION_COUNT = 5  # Number of dimensions in a CZI video file (time, size_c, size_z, size_y, size_x)
 
+    def __init__(
+        self,
+        root_path: str | Path,
+        config: dict[str, Any] | None = None,
+        *,
+        dry_run: bool = False,
+    ) -> None:
+        super().__init__(
+            root_path,
+            config,
+            dry_run=dry_run,
+            metadata_class=iFDOMetadata,
+        )
+
     @staticmethod
     def get_pipeline_config_schema() -> dict[str, Any]:
         """
@@ -107,11 +126,11 @@ class ZeissAxioPipeline(BasePipeline):
         }
 
     def _import(
-            self,
-            data_dir: Path,
-            source_path: Path,
-            config: dict[str, Any],
-            **kwargs: dict[str, Any],
+        self,
+        data_dir: Path,
+        source_path: Path,
+        config: dict[str, Any],
+        **kwargs: dict[str, Any],
     ) -> None:
         """
         Import data from source directories or files to a specified Marimba Collection.
@@ -141,11 +160,11 @@ class ZeissAxioPipeline(BasePipeline):
         # Dynamically apply the multithreaded decorator
         @multithreaded()  # type: ignore[misc]
         def process_file(
-                self: ZeissAxioPipeline,
-                thread_num: str,  # noqa: ARG001
-                item: Path,
-                data_dir: Path,
-                config: dict[str, Any],
+            self: ZeissAxioPipeline,
+            thread_num: str,  # noqa: ARG001
+            item: Path,
+            data_dir: Path,
+            config: dict[str, Any],
         ) -> None:
             self.process_source_file(item, data_dir, config)
 
@@ -158,10 +177,10 @@ class ZeissAxioPipeline(BasePipeline):
         )  # type: ignore[call-arg]
 
     def process_source_file(
-            self,
-            source_file: Path,
-            data_dir: Path,
-            config: dict[str, Any],
+        self,
+        source_file: Path,
+        data_dir: Path,
+        config: dict[str, Any],
     ) -> None:
         """
         Processes a source file and extracts images and videos from a CZI file.
@@ -268,9 +287,9 @@ class ZeissAxioPipeline(BasePipeline):
         return data_dir / magnification_factor / contrast_id / biological_stain_id / strain_id / iso_timestamp
 
     def czi_already_processed(
-            self,
-            output_image_name: str,
-            output_base_dir: Path,
+        self,
+        output_image_name: str,
+        output_base_dir: Path,
     ) -> bool:
         """
         Check if a CZI file has already been processed.
@@ -296,10 +315,10 @@ class ZeissAxioPipeline(BasePipeline):
         return False
 
     def extract_images(
-            self,
-            image: NDArray[np.uint16],
-            output_image_name: str,
-            output_image_dir: Path,
+        self,
+        image: NDArray[np.uint16],
+        output_image_name: str,
+        output_image_dir: Path,
     ) -> None:
         """
         Extracts individual images from a stacked image array and saves them to disk in a specified directory.
@@ -324,9 +343,9 @@ class ZeissAxioPipeline(BasePipeline):
             self.write_image_to_disk(output_image_path, stacked_image)
 
     def write_image_to_disk(
-            self,
-            output_image_path: Path,
-            image: NDArray[np.uint16],
+        self,
+        output_image_path: Path,
+        image: NDArray[np.uint16],
     ) -> None:
         """
         Writes an image to disk in JPG format.
@@ -403,8 +422,8 @@ class ZeissAxioPipeline(BasePipeline):
                 frame_normalized = cv2.normalize(
                     frame,
                     None,
-                    alpha=0,
-                    beta=255,
+                    alpha=0.0,
+                    beta=255.0,
                     norm_type=cv2.NORM_MINMAX,
                     dtype=cv2.CV_8U,
                 )
@@ -427,10 +446,10 @@ class ZeissAxioPipeline(BasePipeline):
             raise
 
     def extract_metadata(
-            self,
-            source_file: Path,
-            output_metadata_name: str,
-            output_data_dir: Path,
+        self,
+        source_file: Path,
+        output_metadata_name: str,
+        output_data_dir: Path,
     ) -> float:
         """
         Extracts metadata from a given source file and writes it to a JSON file.
@@ -506,10 +525,10 @@ class ZeissAxioPipeline(BasePipeline):
 
     # ruff: noqa: ARG002
     def _process(
-            self,
-            data_dir: Path,
-            config: dict[str, Any],
-            **kwargs: dict[str, Any],
+        self,
+        data_dir: Path,
+        config: dict[str, Any],
+        **kwargs: dict[str, Any],
     ) -> None:
         """
         Implementation of the Marimba process command for the Zeiss Axio Observer.
@@ -556,14 +575,15 @@ class ZeissAxioPipeline(BasePipeline):
             # Generate the overview image
             overview_path = base_image_sequence_dir / overview_name
             image.create_grid_image(thumbnail_list, overview_path)
+            self.logger.debug(f"Generated overview image {overview_path}")
 
     # ruff: noqa: ARG002
     def _package(
-            self,
-            data_dir: Path,
-            config: dict[str, Any],
-            **kwargs: dict[str, Any],
-    ) -> dict[Path, tuple[Path, ImageData | None, dict[str, Any] | None]]:
+        self,
+        data_dir: Path,
+        config: dict[str, Any],
+        **kwargs: dict[str, Any],
+    ) -> dict[Path, tuple[Path, list[BaseMetadata] | None, dict[str, Any] | None]]:
         """
         Implementation of the Marimba package command for the Zeiss Axio Observer.
 
@@ -577,7 +597,7 @@ class ZeissAxioPipeline(BasePipeline):
             data.
 
         """
-        data_mapping: dict[Path, tuple[Path, list[ImageData] | None, dict[str, Any] | None]] = {}
+        data_mapping: dict[Path, tuple[Path, list[BaseMetadata] | None, dict[str, Any] | None]] = {}
 
         # List all files in the root directory recursively
         all_files = list(data_dir.glob("**/*"))
@@ -601,11 +621,10 @@ class ZeissAxioPipeline(BasePipeline):
                 # Set the image pi and creators
                 image_pi = ImagePI(name="Chris Jackett", orcid="0000-0003-1132-1558")
                 image_creators = [
-                    image_pi,
-                    ImagePI(name="Ian Jameson", orcid=""),
-                    ImagePI(name="Carlie Devine", orcid=""),
-                    ImagePI(name="Emily Gumina", orcid=""),
-                    ImagePI(name="CSIRO", orcid=""),
+                    ImageCreator(name="Chris Jackett", orcid="0000-0003-1132-1558"),
+                    ImageCreator(name="Ian Jameson", orcid=""),
+                    ImageCreator(name="Carlie Devine", orcid=""),
+                    ImageCreator(name="Emily Gumina", orcid=""),
                 ]
 
                 # Validate that self.config exists
@@ -616,6 +635,8 @@ class ZeissAxioPipeline(BasePipeline):
                 platform_id = self.config.get("platform_id")
                 if not isinstance(platform_id, str):
                     raise TypeError("platform_id must be provided in the pipeline config and must be a string")
+                image_platform = ImageContext(name=platform_id)
+                image_license = ImageLicense(name="CC BY-NC 4.0", uri="https://creativecommons.org/licenses/by-nc/4.0/")
 
                 # ruff: noqa: ERA001
                 image_data = ImageData(
@@ -631,13 +652,13 @@ class ZeissAxioPipeline(BasePipeline):
                     # image_context: Optional[str] = None
                     # image_project=row["survey_id"],
                     # image_event=f'{row["survey_id"]}_{row["deployment_number"]}',
-                    image_platform=platform_id,
+                    image_platform=image_platform,
                     # image_sensor=row["camera_name"],
                     image_uuid=str(uuid4()),
                     # image_hash_sha256=image_hash_sha256,
-                    image_pi=ImagePI(name="Chris Jackett", orcid="0000-0003-1132-1558"),
+                    image_pi=image_pi,
                     image_creators=image_creators,
-                    image_license="CC BY 4.0",
+                    image_license=image_license,
                     image_copyright="CSIRO",
                     # image_abstract=self.config.get("abstract"),
                     #
@@ -692,7 +713,8 @@ class ZeissAxioPipeline(BasePipeline):
                     # image_annotations: Optional[List[ImageAnnotation]] = None
                 )
 
-                data_mapping[file_path] = output_file_path, [image_data], None
+                metadata = self._metadata_class(image_data)
+                data_mapping[file_path] = output_file_path, [metadata], None
 
             else:
                 data_mapping[file_path] = output_file_path, None, None
