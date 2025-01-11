@@ -20,6 +20,7 @@ from ifdo.models import (
     ImageIllumination,
     ImageLicense,
     ImageMarineZone,
+    ImageNavigation,
     ImagePI,
     ImagePixelMagnitude,
     ImageQuality,
@@ -39,6 +40,7 @@ from marimba.main import __version__
 # Required format: strain_id, imaging_system_id, magnification_factor, contrast_id,
 # channel_id, biological_stain_id, object_id, iso_timestamp
 EXPECTED_FILENAME_PARTS = 8
+
 
 def is_valid_filename(filename: str) -> bool:
     """
@@ -119,8 +121,8 @@ class ZeissAxioPipeline(BasePipeline):
             dict: Configuration parameters for the pipeline
         """
         return {
-            "project_pi": "Chris Jackett",
             "platform_id": "ZAO",
+            "image_sensor": "AxioCam HR R3",
         }
 
     @staticmethod
@@ -132,7 +134,6 @@ class ZeissAxioPipeline(BasePipeline):
             dict: Configuration parameters for the collection
         """
         return {
-            "data_collector": "Chris Jackett",
             "collection_year": "2021",
         }
 
@@ -622,8 +623,8 @@ class ZeissAxioPipeline(BasePipeline):
         all_files = list(data_dir.glob("**/*"))
 
         # Split the files using list comprehensions
-        jpg_files = [file for file in all_files if file.suffix.lower() == ".jpg"]
-        ancillary_files = [file for file in all_files if file.suffix.lower() != ".jpg"]
+        media_files = [file for file in all_files if file.suffix.lower() in {".jpg", ".mp4"}]
+        ancillary_files = [file for file in all_files if file.suffix.lower() not in {".jpg", ".mp4"}]
 
         # Add ancillary files to data mapping
         self.logger.debug("Adding ancillary files to data mapping")
@@ -634,108 +635,155 @@ class ZeissAxioPipeline(BasePipeline):
 
         # Process and add jpg files to data mapping
         self.logger.debug("Processing and adding jpg files to data mapping")
-        for file_path in jpg_files:
+        for file_path in media_files:
             output_file_path = file_path.relative_to(data_dir)
-            if file_path.parent.name == "images":
-                # Set the image pi and creators
-                image_pi = ImagePI(name="Chris Jackett", orcid="0000-0003-1132-1558")
-                image_creators = [
-                    ImageCreator(name="Chris Jackett", orcid="0000-0003-1132-1558"),
-                    ImageCreator(name="Ian Jameson", orcid=""),
-                    ImageCreator(name="Carlie Devine", orcid=""),
-                    ImageCreator(name="Emily Gumina", orcid=""),
-                ]
+            parent_dir_name = file_path.parent.name
 
-                # Validate that self.config exists
-                if self.config is None:
-                    raise ValueError("Pipeline configuration is missing")
-
-                # Get platform_id from config and validate it
-                platform_id = self.config.get("platform_id")
-                if not isinstance(platform_id, str):
-                    raise TypeError("platform_id must be provided in the pipeline config and must be a string")
-                image_platform = ImageContext(name=platform_id)
-                image_license = ImageLicense(name="CC BY-NC 4.0", uri="https://creativecommons.org/licenses/by-nc/4.0/")
-
-                # ruff: noqa: ERA001
-                image_data = ImageData(
-                    # iFDO core
-                    # TODO(<cjackett>): Get image_datetime from the JSON file (AcquisitionDateAndTime)
-                    image_datetime=datetime.strptime(Path(file_path).stem.split("_")[5], "%Y%m%dT%H%M%SZ")
-                    .replace(tzinfo=timezone.utc),
-                    image_latitude=-42.88742265404429,
-                    image_longitude=147.3387391318042,
-                    image_altitude=None,
-                    image_coordinate_reference_system="EPSG:4326",
-                    image_coordinate_uncertainty_meters=None,
-                    # image_context: Optional[str] = None
-                    # image_project=row["survey_id"],
-                    # image_event=f'{row["survey_id"]}_{row["deployment_number"]}',
-                    image_platform=image_platform,
-                    # image_sensor=row["camera_name"],
-                    image_uuid=str(uuid4()),
-                    # image_hash_sha256=image_hash_sha256,
-                    image_pi=image_pi,
-                    image_creators=image_creators,
-                    image_license=image_license,
-                    image_copyright="CSIRO",
-                    # image_abstract=self.config.get("abstract"),
-                    #
-                    # # iFDO capture (optional)
-                    image_acquisition=ImageAcquisition.PHOTO,
-                    image_quality=ImageQuality.PRODUCT,
-                    image_deployment=ImageDeployment.STATIONARY,
-                    # image_navigation=ImageNavigation.RECONSTRUCTED,
-                    # image_scale_reference=ImageScaleReference.NONE,
-                    image_illumination=ImageIllumination.ARTIFICIAL_LIGHT,
-                    image_pixel_mag=ImagePixelMagnitude.UM,
-                    image_marine_zone=ImageMarineZone.LABORATORY,
-                    image_spectral_resolution=ImageSpectralResolution.RGB,
-                    image_capture_mode=ImageCaptureMode.MANUAL,
-                    image_fauna_attraction=ImageFaunaAttraction.NONE,
-                    # image_area_square_meter: Optional[float] = None
-                    # image_meters_above_ground: Optional[float] = None
-                    # image_acquisition_settings: Optional[dict] = None
-                    # image_camera_yaw_degrees: Optional[float] = None
-                    # image_camera_pitch_degrees: Optional[float] = None
-                    # image_camera_roll_degrees: Optional[float] = None
-                    # image_overlap_fraction=0,
-                    image_datetime_format="%Y-%m-%d %H:%M:%S.%f",
-                    # image_camera_pose: Optional[CameraPose] = None
-                    # image_camera_housing_viewport: Optional[CameraHousingViewport] = None
-                    # image_flatport_parameters: Optional[FlatportParameters] = None
-                    # image_domeport_parameters: Optional[DomeportParameters] = None
-                    # image_camera_calibration_model: Optional[CameraCalibrationModel] = None
-                    # image_photometric_calibration: Optional[PhotometricCalibration] = None
-                    # image_objective: Optional[str] = None
-                    image_target_environment="Benthic habitat",
-                    # image_target_timescale: Optional[str] = None
-                    # image_spatial_constraints: Optional[str] = None
-                    # image_temporal_constraints: Optional[str] = None
-                    # image_time_synchronization: Optional[str] = None
-                    image_item_identification_scheme="<imaging_system_id>_<magnification_factor>_<contrast_id>_<biological_stain_id>_<strain_id>_<iso_timestamp>_<image_id>.<ext>",
-                    image_curation_protocol=f"Processed with Marimba v{__version__}",
-                    #
-                    # # iFDO content (optional)
-                    # image_entropy=image_entropy,
-                    # image_particle_count: Optional[int] = None
-                    # image_average_color=image_average_color,
-                    # image_mpeg7_colorlayout: Optional[List[float]] = None
-                    # image_mpeg7_colorstatistics: Optional[List[float]] = None
-                    # image_mpeg7_colorstructure: Optional[List[float]] = None
-                    # image_mpeg7_dominantcolor: Optional[List[float]] = None
-                    # image_mpeg7_edgehistogram: Optional[List[float]] = None
-                    # image_mpeg7_homogenoustexture: Optional[List[float]] = None
-                    # image_mpeg7_stablecolor: Optional[List[float]] = None
-                    # image_annotation_labels: Optional[List[ImageAnnotationLabel]] = None
-                    # image_annotation_creators: Optional[List[ImageAnnotationCreator]] = None
-                    # image_annotations: Optional[List[ImageAnnotation]] = None
-                )
-
-                metadata = self._metadata_class(image_data)
-                data_mapping[file_path] = output_file_path, [metadata], None
-
-            else:
+            # Only process files in images or videos directories
+            if parent_dir_name not in {"images", "videos"}:
                 data_mapping[file_path] = output_file_path, None, None
+                continue
+
+            # Set the image pi and creators
+            image_pi = ImagePI(name="Chris Jackett", uri="https://orcid.org/0000-0003-1132-1558")
+            image_creators = [
+                ImageCreator(name="Chris Jackett", uri="https://orcid.org/0000-0003-1132-1558"),
+                ImageCreator(name="Ian Jameson", uri="https://orcid.org/0000-0002-1365-9723"),
+                ImageCreator(name="Carlie Devine", uri="https://orcid.org/0000-0003-1397-7446"),
+                ImageCreator(name="Ros Watson", uri="https://orcid.org/0009-0005-9604-3658"),
+                ImageCreator(name="Emily Gumina", uri=""),
+                ImageCreator(name="Peter Thrall", uri="https://orcid.org/0000-0003-1670-4240"),
+            ]
+
+            # Validate that self.config exists
+            if self.config is None:
+                raise ValueError("Pipeline configuration is missing")
+
+            # Get platform_id from config and validate it
+            filename_split = Path(file_path).stem.split("_")
+            image_datetime = datetime.strptime(
+                filename_split[5], "%Y%m%dT%H%M%SZ",
+            ).replace(tzinfo=timezone.utc)
+            platform_id = self.config.get("platform_id")
+            if not isinstance(platform_id, str):
+                raise TypeError("platform_id must be provided in the pipeline config and must be a string")
+            image_platform = ImageContext(name=platform_id)
+
+            # Create ImageContext and ImageLicense objects
+            image_context = ImageContext(name=(
+                "The CSIRO Machine Learning and Artificial Intelligence Future Science Platform (MLAI FSP) algae "
+                "detection project was established to develop automated methods for identifying phytoplankton "
+                "species in mixed communities using deep learning techniques. The project aimed to improve the "
+                "speed and accuracy of phytoplankton identification in images to support Australian aquaculture, "
+                "fisheries, and environmental management, with applications ranging from monitoring ecosystem health "
+                "to identifying Harmful Algal Bloom (HAB) species."
+                ),
+                uri="https://research.csiro.au/mlai-fsp",
+            )
+            image_project = ImageContext(name=(
+                "CSIRO Australian Phytoplankton Microscopy Dataset (CAPMD) - A comprehensive microscopy imaging "
+                "campaign of cultured phytoplankton species from the Australian National Algae Culture Collection "
+                "(ANACC), designed to create a high-quality training dataset for machine learning applications."
+                ),
+                uri="https://www.csiro.au/anacc",
+            )
+            image_event = ImageContext(name="_".join(Path(file_path).stem.split("_")))
+            image_sensor = ImageContext(name=self.config.get("image_sensor"))
+            image_license = ImageLicense(name="CC BY-NC 4.0", uri="https://creativecommons.org/licenses/by-nc/4.0/")
+            image_abstract = (
+                "The CSIRO Australian Phytoplankton Microscopy Dataset (CAPMD) is a comprehensive collection of "
+                "high-quality microscopy images documenting the morphological diversity of phytoplankton species from "
+                "the Australian National Algae Culture Collection (ANACC). Images were acquired using ZEISS Axio "
+                "Observer and Axio Plan microscopes under standardised laboratory conditions at the CSIRO Battery "
+                "Point site in Hobart, Tasmania. Live specimens were prepared in suspension and systematically imaged "
+                "by capturing multiple short videos (50-200 frames) using a focal rolling technique that involved "
+                "maneuvering the objective lens through different focal planes of the sample to capture key taxonomic "
+                "features and cellular structures. The imaging protocol implemented multiple modalities including "
+                "bright field, differential interference contrast, and phase contrast microscopy at magnifications "
+                "ranging from 100x to 1000x. Specimens were selectively treated with Tylose to immobilise highly "
+                "motile cells while maintaining their structural integrity, or Lugol's (Iodine) solution as a fixing "
+                "agent to capture fixed cell imagery, which is a standard approach in phytoplankton identification. "
+                "The imaging protocol was specifically designed to support the development of automated phytoplankton "
+                "identification systems using machine learning techniques, with careful attention given to image "
+                "quality, consistency, and comprehensive coverage of taxonomically significant features across "
+                "different imaging conditions. This systematic imaging campaign successfully balanced the need for "
+                "high-quality, representative samples with efficient, high-volume image capture, creating a robust "
+                "dataset for advancing automated phytoplankton identification methods."
+            )
+
+            # ruff: noqa: ERA001
+            image_data = ImageData(
+                # iFDO core
+                image_datetime=image_datetime,
+                image_latitude=-42.88742265404429,
+                image_longitude=147.3387391318042,
+                image_altitude_meters=None,
+                image_coordinate_reference_system="EPSG:4326",
+                image_coordinate_uncertainty_meters=None,
+                image_context=image_context,
+                image_project=image_project,
+                image_event=image_event,
+                image_platform=image_platform,
+                image_sensor=image_sensor,
+                image_uuid=str(uuid4()),
+                image_pi=image_pi,
+                image_creators=image_creators,
+                image_license=image_license,
+                image_copyright="CSIRO",
+                image_abstract=image_abstract,
+
+                # iFDO capture (optional)
+                image_acquisition=ImageAcquisition.PHOTO,
+                image_quality=ImageQuality.PRODUCT,
+                image_deployment=ImageDeployment.STATIONARY,
+                image_navigation=ImageNavigation.RECONSTRUCTED,
+                # image_scale_reference=None,
+                image_illumination=ImageIllumination.ARTIFICIAL_LIGHT,
+                image_pixel_magnitude=ImagePixelMagnitude.UM,
+                image_marine_zone=ImageMarineZone.LABORATORY,
+                image_spectral_resolution=ImageSpectralResolution.RGB,
+                image_capture_mode=ImageCaptureMode.MANUAL,
+                image_fauna_attraction=ImageFaunaAttraction.NONE,
+                # image_area_square_meter=None,
+                # image_meters_above_ground=None,
+                # image_acquisition_settings=None,
+                # image_camera_yaw_degrees=None,
+                # image_camera_pitch_degrees=None,
+                # image_camera_roll_degrees=None,
+                # image_overlap_fraction=0,
+                image_datetime_format="%Y-%m-%d %H:%M:%S.%f",
+                # image_camera_pose=None,
+                # image_camera_housing_viewport=None,
+                # image_flatport_parameters=None,
+                # image_domeport_parameters=None,
+                # image_camera_calibration_model=None,
+                # image_photometric_calibration=None,
+                # image_objective=None,
+                # image_target_environment=None,
+                # image_target_timescale=None,
+                # image_spatial_constraints=None,
+                # image_temporal_constraints=None,
+                # image_time_synchronization=None,
+                image_item_identification_scheme="<imaging_system_id>_<magnification_factor>_<contrast_id>_<biological_stain_id>_<strain_id>_<iso_timestamp>_<image_id>.<ext>",
+                image_curation_protocol=f"Processed with Marimba v{__version__}",
+
+                # iFDO content (optional)
+                # image_entropy=0.0,
+                # image_particle_count=None,
+                # image_average_color=[0, 0, 0],
+                # image_mpeg7_colorlayout=None,
+                # image_mpeg7_colorstatistics=None,
+                # image_mpeg7_colorstructure=None,
+                # image_mpeg7_dominantcolor=None,
+                # image_mpeg7_edgehistogram=None,
+                # image_mpeg7_homogenoustexture=None,
+                # image_mpeg7_stablecolor=None,
+                # image_annotation_labels=None,
+                # image_annotation_creators=None,
+                # image_annotations=None,
+            )
+
+            metadata = self._metadata_class(image_data)
+            data_mapping[file_path] = output_file_path, [metadata], None
 
         return data_mapping
