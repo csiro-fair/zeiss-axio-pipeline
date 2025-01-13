@@ -31,6 +31,7 @@ from numpy.typing import NDArray
 from marimba.core.pipeline import BasePipeline
 from marimba.core.schemas.base import BaseMetadata
 from marimba.core.schemas.ifdo import iFDOMetadata
+from marimba.core.utils.paths import format_path_for_logging
 from marimba.lib import image
 from marimba.lib.concurrency import multithreaded_generate_image_thumbnails
 from marimba.lib.decorators import multithreaded
@@ -76,7 +77,6 @@ class ZeissAxioPipeline(BasePipeline):
         process_source_file(source_file, data_dir, config): Processes a source file and extracts images and videos.
         get_output_dir_from_filename(data_dir, filename): Generates the output directory path based on filename
         attributes.
-        czi_already_processed(output_image_name, output_base_dir): Checks if a CZI file has already been processed.
         extract_images(image, output_image_name, output_image_dir): Extracts and saves individual images from a stack.
         write_image_to_disk(output_image_path, image): Writes an image to disk in JPG format.
         extract_video(image, output_video_name, output_video_dir, video_frame_rate): Extracts and saves a video from
@@ -163,7 +163,6 @@ class ZeissAxioPipeline(BasePipeline):
             directory.
             ValueError: If the config dictionary contains invalid or incompatible options.
         """
-        self.logger.debug(f"Importing data from {source_path} to {data_dir}")
         if not source_path.is_dir():
             return
 
@@ -217,8 +216,6 @@ class ZeissAxioPipeline(BasePipeline):
         is_czi_file = source_file.suffix.lower() == ".czi"
 
         if source_file.is_file() and is_czi_file and contains_collection_year and contains_platform_id:
-            self.logger.debug(f"Processing file: {source_file.name}...")
-
             if not is_valid_filename(source_file.name):
                 return
 
@@ -249,15 +246,13 @@ class ZeissAxioPipeline(BasePipeline):
                 f"{iso_timestamp}"
             )
 
-            # if not self.czi_already_processed(output_file_name, output_base_dir):
-            self.logger.debug(f"Reading CZI file: {source_file}...")
-
             # Try to read CZI file and extract image frames
             try:
                 image = czifile.imread(str(source_file))
 
                 # Check that the CZI file is a video
                 if len(image.shape) == self.VIDEO_DIMENSION_COUNT:
+                    self.logger.debug(f"Started extracting images from CZI file {format_path_for_logging(source_file, Path(self._root_path).parents[2])}")
                     self.extract_images(image, output_file_name, output_image_dir)
                     video_frame_rate = self.extract_metadata(source_file, output_file_name, output_data_dir)
                     self.extract_video(image, output_file_name, output_video_dir, video_frame_rate)
@@ -298,34 +293,6 @@ class ZeissAxioPipeline(BasePipeline):
         # Construct new directory paths
         return data_dir / magnification_factor / contrast_id / biological_stain_id / strain_id / iso_timestamp
 
-    def czi_already_processed(
-        self,
-        output_image_name: str,
-        output_base_dir: Path,
-    ) -> bool:
-        """
-        Check if a CZI file has already been processed.
-
-        This function determines whether a CZI file has been previously processed by checking for the existence of
-        corresponding output files (image, video, and data) in their respective directories. It uses the provided
-        output image name and base directory to construct the expected file paths.
-
-        Args:
-            output_image_name (str): The name of the output image file without extension.
-            output_base_dir (Path): The base directory where processed files are stored.
-
-        Returns:
-            bool: True if the CZI file has already been processed (all output files exist), False otherwise.
-        """
-        output_image_path = output_base_dir / "images" / f"{output_image_name}_001.JPG"
-        output_video_path = output_base_dir / "videos" / f"{output_image_name}.MP4"
-        output_data_path = output_base_dir / "data" / f"{output_image_name}.JSON"
-
-        if output_image_path.is_file() and output_video_path.is_file() and output_data_path.is_file():
-            self.logger.warning(f"CZI file for {output_image_name} has already been imported")
-            return True
-        return False
-
     def extract_images(
         self,
         image: NDArray[np.uint16],
@@ -340,8 +307,6 @@ class ZeissAxioPipeline(BasePipeline):
             output_image_name (str): The base name for the output images.
             output_image_dir (pathlib.Path): The directory where the output images will be saved.
         """
-        self.logger.debug("Extracting images...")
-
         output_image_dir.mkdir(parents=True, exist_ok=True)
         number_of_stacked_images = image.shape[0]
 
@@ -367,26 +332,27 @@ class ZeissAxioPipeline(BasePipeline):
             image: The image to be written to disk.
 
         """
-        self.logger.debug(f"Writing new JPG file: {output_image_path}")
+        try:
+            # Convert to RGB and normalize
+            rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            # Create output array with same type as input
+            dst = np.empty_like(rgb_image)
+            normalized_image = cv2.normalize(
+                src=rgb_image,
+                dst=dst,
+                alpha=0.0,
+                beta=255.0,
+                norm_type=cv2.NORM_MINMAX,
+                dtype=cv2.CV_16U,
+            )
 
-        # Convert to RGB and normalize
-        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        # Create output array with same type as input
-        dst = np.empty_like(rgb_image)
-        normalized_image = cv2.normalize(
-            src=rgb_image,
-            dst=dst,
-            alpha=0.0,
-            beta=255.0,
-            norm_type=cv2.NORM_MINMAX,
-            dtype=cv2.CV_16U,
-        )
-
-        # Write JPG to disk
-        if cv2.imwrite(str(output_image_path), normalized_image, [int(cv2.IMWRITE_JPEG_QUALITY), 90]):
-            self.logger.debug(f"Completed writing JPG file: {output_image_path}")
-        else:
-            self.logger.exception(f"Could not write JPG image: {output_image_path}")
+            # Write JPG to disk
+            if cv2.imwrite(str(output_image_path), normalized_image, [int(cv2.IMWRITE_JPEG_QUALITY), 90]):
+                self.logger.debug(f"Created image {format_path_for_logging(output_image_path, Path(self._root_path).parents[2])}")
+            else:
+                self.logger.error(f"Failed to create {format_path_for_logging(output_image_path, Path(self._root_path).parents[2])}")
+        except Exception as e:
+            self.logger.exception(f"Error creating {format_path_for_logging(output_image_path, Path(self._root_path).parents[2])}: {e}")
 
     def extract_video(
         self,
@@ -407,8 +373,6 @@ class ZeissAxioPipeline(BasePipeline):
             output_video_dir (pathlib.Path): The directory where the output video will be saved.
             video_frame_rate (float): The frame rate of the output video.
         """
-        self.logger.debug("Extracting video...")
-
         output_video_dir.mkdir(parents=True, exist_ok=True)
         number_of_stacked_images = image.shape[0]
         output_video_path = output_video_dir / (output_video_name + ".MP4")
@@ -448,7 +412,7 @@ class ZeissAxioPipeline(BasePipeline):
 
             # Release the video writer
             out.release()
-            self.logger.debug(f"Successfully wrote video to file: {output_video_path}")
+            self.logger.debug(f"Created video {format_path_for_logging(output_video_path, Path(self._root_path).parents[2])}")
 
         except Exception as e:
             self.logger.exception(f"Error during video extraction: {e}")
@@ -475,7 +439,6 @@ class ZeissAxioPipeline(BasePipeline):
             The frame rate value extracted from the metadata.
 
         """
-        self.logger.debug("Extracting data...")
         output_data_dir.mkdir(parents=True, exist_ok=True)
 
         with czifile.CziFile(source_file) as czi:
@@ -514,7 +477,7 @@ class ZeissAxioPipeline(BasePipeline):
                         # In case of conversion error, ignore the current value and continue
                         continue
 
-            self.logger.debug(f"Extracted frame rate is: {frame_rate}")
+            self.logger.debug(f"Frame rate extracted from CZI metadata is {frame_rate} fps")
             return frame_rate
 
     def write_metadata_to_disk(self, output_metadata_path: Path, data: dict[str, Any]) -> None:
@@ -525,15 +488,12 @@ class ZeissAxioPipeline(BasePipeline):
             output_metadata_path (str): The file path where the data will be written to.
             data: The input dictionary that will be written to disk.
         """
-        self.logger.debug(f"Writing new data to JSON file: {output_metadata_path}")
-        # Write dictionary to JSON file
         try:
             with Path.open(output_metadata_path, "w") as json_file:
                 json.dump(data, json_file, indent=4, sort_keys=True)
-            self.logger.debug(f"Completed writing data to JSON file: {output_metadata_path}")
+            self.logger.debug(f"Created metadata {format_path_for_logging(output_metadata_path, Path(self._root_path).parents[2])}")
         except Exception as e:
-            self.logger.exception(f"Could not write data to JSON file: {output_metadata_path}")
-            self.logger.exception(e)
+            self.logger.exception(f"Error creating metadata {format_path_for_logging(output_metadata_path, Path(self._root_path).parents[2])}: {e}")
 
     # ruff: noqa: ARG002
     def _process(
@@ -554,8 +514,6 @@ class ZeissAxioPipeline(BasePipeline):
             None
 
         """
-        self.logger.debug(f"Processing data in {data_dir}...")
-
         all_images = data_dir.glob("**/images/*.JPG")
 
         # Initialize an empty set to hold unique parent directories
@@ -595,7 +553,7 @@ class ZeissAxioPipeline(BasePipeline):
             # Generate the overview image
             overview_path = base_image_sequence_dir / overview_name
             image.create_grid_image(thumbnail_list, overview_path)
-            self.logger.debug(f"Generated overview image {overview_path}")
+            self.logger.debug(f"Created overview image {format_path_for_logging(overview_path, Path(self._root_path).parents[2])}")
 
     # ruff: noqa: ARG002
     def _package(
@@ -627,14 +585,13 @@ class ZeissAxioPipeline(BasePipeline):
         ancillary_files = [file for file in all_files if file.suffix.lower() not in {".jpg", ".mp4"}]
 
         # Add ancillary files to data mapping
-        self.logger.debug("Adding ancillary files to data mapping")
         for file_path in ancillary_files:
             if file_path.is_file():
                 output_file_path = file_path.relative_to(data_dir)
                 data_mapping[file_path] = output_file_path, None, None
+        self.logger.debug(f"Added {len(ancillary_files)} ancillary files to data mapping")
 
         # Process and add jpg files to data mapping
-        self.logger.debug("Processing and adding jpg files to data mapping")
         for file_path in media_files:
             output_file_path = file_path.relative_to(data_dir)
             parent_dir_name = file_path.parent.name
@@ -645,13 +602,13 @@ class ZeissAxioPipeline(BasePipeline):
                 continue
 
             # Set the image pi and creators
-            image_pi = ImagePI(name="Chris Jackett", uri="https://orcid.org/0000-0003-1132-1558")
+            image_pi = ImagePI(name="Christopher Jackett", uri="https://orcid.org/0000-0003-1132-1558")
             image_creators = [
-                ImageCreator(name="Chris Jackett", uri="https://orcid.org/0000-0003-1132-1558"),
+                ImageCreator(name="Christopher Jackett", uri="https://orcid.org/0000-0003-1132-1558"),
                 ImageCreator(name="Ian Jameson", uri="https://orcid.org/0000-0002-1365-9723"),
                 ImageCreator(name="Carlie Devine", uri="https://orcid.org/0000-0003-1397-7446"),
                 ImageCreator(name="Ros Watson", uri="https://orcid.org/0009-0005-9604-3658"),
-                ImageCreator(name="Emily Gumina", uri=""),
+                ImageCreator(name="Emily Gumina", uri="https://orcid.org/0009-0004-0169-9770"),
                 ImageCreator(name="Peter Thrall", uri="https://orcid.org/0000-0003-1670-4240"),
             ]
 
@@ -689,7 +646,7 @@ class ZeissAxioPipeline(BasePipeline):
             )
             image_event = ImageContext(name="_".join(Path(file_path).stem.split("_")))
             image_sensor = ImageContext(name=self.config.get("image_sensor"))
-            image_license = ImageLicense(name="CC BY-NC 4.0", uri="https://creativecommons.org/licenses/by-nc/4.0/")
+            image_license = ImageLicense(name="CC BY-NC 4.0", uri="https://creativecommons.org/licenses/by-nc/4.0")
             image_abstract = (
                 "The CSIRO Australian Phytoplankton Microscopy Dataset (CAPMD) is a comprehensive collection of "
                 "high-quality microscopy images documenting the morphological diversity of phytoplankton species from "
@@ -786,4 +743,5 @@ class ZeissAxioPipeline(BasePipeline):
             metadata = self._metadata_class(image_data)
             data_mapping[file_path] = output_file_path, [metadata], None
 
+        self.logger.debug(f"Added {len(media_files)} media files to data mapping")
         return data_mapping
