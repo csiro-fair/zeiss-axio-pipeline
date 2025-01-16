@@ -61,7 +61,7 @@ def is_valid_filename(filename: str) -> bool:
 
 class ZeissAxioPipeline(BasePipeline):
     """
-    Implements a pipeline for importing and processing data from Zeiss Axio Observer microscopy systems.
+    Marimba Pipeline for the CSIRO ANACC Zeiss Axio microscopes.
 
     This class extends BasePipeline to provide functionality for handling Zeiss Axio Observer microscopy data. It
     includes methods for importing, processing, and packaging data, as well as utilities for extracting images, videos,
@@ -71,20 +71,19 @@ class ZeissAxioPipeline(BasePipeline):
         VIDEO_DIMENSION_COUNT (int): The expected number of dimensions for video data in CZI files.
 
     Methods:
-        get_pipeline_config_schema(): Returns the schema for the pipeline configuration.
-        get_collection_config_schema(): Returns the schema for the collection configuration.
-        _import(data_dir, source_path, config, **kwargs): Imports data from source paths to the data directory.
-        process_source_file(source_file, data_dir, config): Processes a source file and extracts images and videos.
-        get_output_dir_from_filename(data_dir, filename): Generates the output directory path based on filename
-        attributes.
-        extract_images(image, output_image_name, output_image_dir): Extracts and saves individual images from a stack.
-        write_image_to_disk(output_image_path, image): Writes an image to disk in JPG format.
-        extract_video(image, output_video_name, output_video_dir, video_frame_rate): Extracts and saves a video from
-        images.
-        extract_metadata(source_file, output_metadata_name, output_data_dir): Extracts metadata from a source file.
-        write_metadata_to_disk(output_metadata_path, data): Writes metadata to a JSON file on disk.
-        _process(data_dir, config, **kwargs): Processes data in the specified directory.
-        _package(data_dir, config, **kwargs): Packages processed data for further use or distribution.
+        get_pipeline_config_schema(): Get the pipeline configuration schema.
+        get_collection_config_schema(): Get the collection configuration schema.
+        _import(data_dir, source_path, config, **kwargs): Import data from source paths to the data directory.
+        process_source_file(source_file, data_dir, config): Process a source file and extract images and videos.
+        get_output_dir_from_filename(data_dir, filename): Generate output directory path based on filename attributes.
+        extract_images(image, output_image_name, output_image_dir): Extract and save individual images from a stack.
+        write_image_to_disk(output_image_path, image): Write an image to disk in JPG format.
+        extract_video(image, output_video_name, output_video_dir, video_frame_rate): Extract and save a video from
+            images.
+        extract_metadata(source_file, output_metadata_name, output_data_dir): Extract metadata from a source file.
+        write_metadata_to_disk(output_metadata_path, data): Write metadata to a JSON file on disk.
+        _process(data_dir, config, **kwargs): Process data in the specified directory.
+        _package(data_dir, config, **kwargs): Package processed data for further use or distribution.
     """
     VIDEO_DIMENSION_COUNT = 5  # Number of dimensions in a CZI video file (time, size_c, size_z, size_y, size_x)
 
