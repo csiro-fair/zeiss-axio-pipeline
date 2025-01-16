@@ -252,7 +252,10 @@ class ZeissAxioPipeline(BasePipeline):
 
                 # Check that the CZI file is a video
                 if len(image.shape) == self.VIDEO_DIMENSION_COUNT:
-                    self.logger.debug(f"Started extracting images from CZI file {format_path_for_logging(source_file, Path(self._root_path).parents[2])}")
+                    self.logger.debug(
+                        f"Started extracting images from CZI file "
+                        f"{format_path_for_logging(source_file, Path(self._root_path).parents[2])}",
+                    )
                     self.extract_images(image, output_file_name, output_image_dir)
                     video_frame_rate = self.extract_metadata(source_file, output_file_name, output_data_dir)
                     self.extract_video(image, output_file_name, output_video_dir, video_frame_rate)
@@ -348,11 +351,17 @@ class ZeissAxioPipeline(BasePipeline):
 
             # Write JPG to disk
             if cv2.imwrite(str(output_image_path), normalized_image, [int(cv2.IMWRITE_JPEG_QUALITY), 90]):
-                self.logger.debug(f"Created image {format_path_for_logging(output_image_path, Path(self._root_path).parents[2])}")
+                self.logger.debug(
+                    f"Created image {format_path_for_logging(output_image_path, Path(self._root_path).parents[2])}",
+                )
             else:
-                self.logger.error(f"Failed to create {format_path_for_logging(output_image_path, Path(self._root_path).parents[2])}")
+                self.logger.error(
+                    f"Failed to create {format_path_for_logging(output_image_path, Path(self._root_path).parents[2])}",
+                )
         except Exception as e:
-            self.logger.exception(f"Error creating {format_path_for_logging(output_image_path, Path(self._root_path).parents[2])}: {e}")
+            self.logger.exception(
+                f"Error creating {format_path_for_logging(output_image_path, Path(self._root_path).parents[2])}: {e}",
+            )
 
     def extract_video(
         self,
@@ -412,7 +421,9 @@ class ZeissAxioPipeline(BasePipeline):
 
             # Release the video writer
             out.release()
-            self.logger.debug(f"Created video {format_path_for_logging(output_video_path, Path(self._root_path).parents[2])}")
+            self.logger.debug(
+                f"Created video {format_path_for_logging(output_video_path, Path(self._root_path).parents[2])}",
+            )
 
         except Exception as e:
             self.logger.exception(f"Error during video extraction: {e}")
@@ -491,9 +502,14 @@ class ZeissAxioPipeline(BasePipeline):
         try:
             with Path.open(output_metadata_path, "w") as json_file:
                 json.dump(data, json_file, indent=4, sort_keys=True)
-            self.logger.debug(f"Created metadata {format_path_for_logging(output_metadata_path, Path(self._root_path).parents[2])}")
+            self.logger.debug(
+                f"Created metadata {format_path_for_logging(output_metadata_path, Path(self._root_path).parents[2])}",
+            )
         except Exception as e:
-            self.logger.exception(f"Error creating metadata {format_path_for_logging(output_metadata_path, Path(self._root_path).parents[2])}: {e}")
+            self.logger.exception(
+                f"Error creating metadata "
+                f"{format_path_for_logging(output_metadata_path, Path(self._root_path).parents[2])}: {e}",
+            )
 
     # ruff: noqa: ARG002
     def _process(
@@ -553,7 +569,9 @@ class ZeissAxioPipeline(BasePipeline):
             # Generate the overview image
             overview_path = base_image_sequence_dir / overview_name
             image.create_grid_image(thumbnail_list, overview_path)
-            self.logger.debug(f"Created overview image {format_path_for_logging(overview_path, Path(self._root_path).parents[2])}")
+            self.logger.debug(
+                f"Created overview image {format_path_for_logging(overview_path, Path(self._root_path).parents[2])}",
+            )
 
     # ruff: noqa: ARG002
     def _package(
