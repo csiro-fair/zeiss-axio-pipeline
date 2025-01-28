@@ -354,7 +354,7 @@ class ZeissAxioPipeline(BasePipeline):
                     f"Created image {format_path_for_logging(output_image_path, Path(self._root_path).parents[2])}",
                 )
             else:
-                self.logger.error(
+                self.logger.exception(
                     f"Failed to create {format_path_for_logging(output_image_path, Path(self._root_path).parents[2])}",
                 )
         except Exception as e:
@@ -607,7 +607,8 @@ class ZeissAxioPipeline(BasePipeline):
             if file_path.is_file():
                 output_file_path = file_path.relative_to(data_dir)
                 data_mapping[file_path] = output_file_path, None, None
-        self.logger.debug(f"Added {len(ancillary_files)} ancillary files to data mapping")
+        if len(ancillary_files):
+            self.logger.debug(f"Added {len(ancillary_files)} ancillary files to data mapping")
 
         # Process and add jpg files to data mapping
         for file_path in media_files:
@@ -762,5 +763,7 @@ class ZeissAxioPipeline(BasePipeline):
             metadata = self._metadata_class(image_data)
             data_mapping[file_path] = output_file_path, [metadata], None
 
-        self.logger.debug(f"Added {len(media_files)} media files to data mapping")
+        if len(media_files):
+            self.logger.debug(f"Added {len(media_files)} media files to data mapping")
+
         return data_mapping
