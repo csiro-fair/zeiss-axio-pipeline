@@ -592,6 +592,7 @@ class ZeissAxioPipeline(BasePipeline):
             data.
 
         """
+        # Initialise an empty dictionary to store file mappings
         data_mapping: dict[Path, tuple[Path, list[BaseMetadata] | None, dict[str, Any] | None]] = {}
 
         # List all files in the root directory recursively
@@ -627,6 +628,7 @@ class ZeissAxioPipeline(BasePipeline):
                 ImageCreator(name="Ros Watson", uri="https://orcid.org/0009-0005-9604-3658"),
                 ImageCreator(name="Emily Gumina", uri="https://orcid.org/0009-0004-0169-9770"),
                 ImageCreator(name="Peter Thrall", uri="https://orcid.org/0000-0003-1670-4240"),
+                ImageCreator(name="CSIRO", uri="https://www.csiro.au"),
             ]
 
             # Validate that self.config exists
@@ -655,7 +657,7 @@ class ZeissAxioPipeline(BasePipeline):
                 uri="https://research.csiro.au/mlai-fsp",
             )
             image_project = ImageContext(name=(
-                "CSIRO Australian Phytoplankton Microscopy Dataset (CAPMD) - A comprehensive microscopy imaging "
+                "The CSIRO Australian Phytoplankton Microscopy Dataset (CAPMD) - A comprehensive microscopy imaging "
                 "campaign of cultured phytoplankton species from the Australian National Algae Culture Collection "
                 "(ANACC), designed to create a high-quality training dataset for machine learning applications."
                 ),
