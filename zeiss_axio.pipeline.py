@@ -627,10 +627,16 @@ class ZeissAxioPipeline(BasePipeline):
                 ImageCreator(name="Ian Jameson", uri="https://orcid.org/0000-0002-1365-9723"),
                 ImageCreator(name="Carlie Devine", uri="https://orcid.org/0000-0003-1397-7446"),
                 ImageCreator(name="Ros Watson", uri="https://orcid.org/0009-0005-9604-3658"),
-                ImageCreator(name="Emily Gumina", uri="https://orcid.org/0009-0004-0169-9770"),
                 ImageCreator(name="Peter Thrall", uri="https://orcid.org/0000-0003-1670-4240"),
                 ImageCreator(name="CSIRO", uri="https://www.csiro.au"),
             ]
+
+            # Add Emily to creators if collection year is 2023
+            collection_year = config.get("collection_year")
+            if collection_year == 2023:
+                image_creators.append(
+                    ImageCreator(name="Emily Gumina", uri="https://orcid.org/0009-0004-0169-9770")
+                )
 
             # Validate that self.config exists
             if self.config is None:
@@ -664,7 +670,7 @@ class ZeissAxioPipeline(BasePipeline):
                 ),
                 uri="https://www.csiro.au/anacc",
             )
-            image_event = ImageContext(name="_".join(Path(file_path).stem.split("_")))
+            image_event = ImageContext(name=file_path.stem)
             image_sensor = ImageContext(name=self.config.get("image_sensor"))
             image_license = ImageLicense(name="CC BY-NC 4.0", uri="https://creativecommons.org/licenses/by-nc/4.0")
             image_abstract = (
