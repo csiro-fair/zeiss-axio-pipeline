@@ -633,7 +633,7 @@ class ZeissAxioPipeline(BasePipeline):
 
             # Add Emily to creators if collection year is 2023
             collection_year = config.get("collection_year")
-            if collection_year == 2023:
+            if collection_year == "2023":
                 image_creators.append(
                     ImageCreator(name="Emily Gumina", uri="https://orcid.org/0009-0004-0169-9770")
                 )
