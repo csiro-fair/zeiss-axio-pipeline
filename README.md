@@ -67,7 +67,8 @@ Import collections with year-specific configurations:
 
 ```bash
 marimba import 2021 /path/to/source/images \
---config '{"collection_year": "2021"}'
+--config '{"collection_year": "2021"}' \
+--max-workers=1
 ```
 
 For a multi-year imaging campaign, each year can be imported separately:
@@ -129,7 +130,7 @@ CAPMD_2021/                                         # Root dataset directory
 │       └── [X100|X200|X400|X630]/                  # Magnification directories
 │           └── [BF|DIC|PC]/                        # Contrast setting directories
 │               └── [IDN|NA|TYL]/                   # Stain directories
-│                   └── [CS-###]/                   # Strain directories
+│                   └── [CS*]/                      # Strain directories
 │                       └── [TIMESTAMP]/            # Timestamp-based directories
 │                           ├── data/               # JSON metadata files
 │                           ├── images/             # Extracted image frames

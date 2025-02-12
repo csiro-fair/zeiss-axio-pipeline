@@ -218,6 +218,14 @@ class ZeissAxioPipeline(BasePipeline):
             if not is_valid_filename(source_file.name):
                 return
 
+            # Extract strain_id from filename
+            strain_id = source_file.stem.split("_")[0]
+
+            # Skip processing if strain_id is "MSA"
+            if strain_id == "MSA":
+                self.logger.debug(f"Skipping MSA strain file {source_file.name}")
+                return
+
             output_base_dir = self.get_output_dir_from_filename(data_dir, source_file.stem)
             output_data_dir = output_base_dir / "data"
             output_image_dir = output_base_dir / "images"
