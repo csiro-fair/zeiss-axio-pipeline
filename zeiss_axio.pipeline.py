@@ -667,8 +667,9 @@ class ZeissAxioPipeline(BasePipeline):
             )
             image_project = ImageContext(name=(
                 "The CSIRO Australian Phytoplankton Microscopy Dataset (CAPMD) - A comprehensive microscopy imaging "
-                "campaign of cultured phytoplankton species from the Australian National Algae Culture Collection "
-                "(ANACC), designed to create a high-quality training dataset for machine learning applications."
+                "campaign of living cultures of phytoplankton species from the Australian National Algae Culture "
+                "Collection (ANACC), designed to create a high-quality training dataset for machine learning "
+                "applications."
                 ),
                 uri="https://www.csiro.au/anacc",
             )
