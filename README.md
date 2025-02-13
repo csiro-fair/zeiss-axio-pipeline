@@ -155,6 +155,7 @@ CAPMD_2021/                                         # Root dataset directory
 ├── ifdo.yml                                        # Dataset-level iFDO metadata file
 ├── manifest.txt                                    # File manifest with SHA256 hashes
 ├── map.png                                         # Spatial visualization of dataset
+├── strain_list.csv                                 # List of imaged strains and associated metadata
 └── summary.md                                      # Dataset summary and statistics
 ```
 
