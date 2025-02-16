@@ -635,16 +635,16 @@ class ZeissAxioPipeline(BasePipeline):
                 ImageCreator(name="Ian Jameson", uri="https://orcid.org/0000-0002-1365-9723"),
                 ImageCreator(name="Carlie Devine", uri="https://orcid.org/0000-0003-1397-7446"),
                 ImageCreator(name="Ros Watson", uri="https://orcid.org/0009-0005-9604-3658"),
-                ImageCreator(name="Peter Thrall", uri="https://orcid.org/0000-0003-1670-4240"),
+                ImageCreator(name="Peter H. Thrall", uri="https://orcid.org/0000-0003-1670-4240"),
                 ImageCreator(name="CSIRO", uri="https://www.csiro.au"),
             ]
 
             # Add Emily to creators if collection year is 2023
             collection_year = config.get("collection_year")
             if collection_year == "2023":
-                # Insert Emily at third-to-last position
+                # Insert Emily at second position
                 image_creators.insert(
-                    len(image_creators) - 2,
+                    2,
                     ImageCreator(name="Emily Gumina", uri="https://orcid.org/0009-0004-0169-9770")
                 )
 
