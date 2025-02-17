@@ -642,14 +642,14 @@ class ZeissAxioPipeline(BasePipeline):
             collection_year = config.get("collection_year")
             if collection_year in {"2021", "2022"}:
                 image_creators.insert(
-                    2,  # Insert after Ian
+                    2,
                     ImageCreator(name="Carlie Devine", uri="https://orcid.org/0000-0003-1397-7446")
                 )
 
             # Add Emily for 2023 dataset
             if collection_year == "2023":
                 image_creators.insert(
-                    1,
+                    2,
                     ImageCreator(name="Emily Gumina", uri="https://orcid.org/0009-0004-0169-9770")
                 )
 
