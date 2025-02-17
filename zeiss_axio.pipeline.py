@@ -628,21 +628,26 @@ class ZeissAxioPipeline(BasePipeline):
                 data_mapping[file_path] = output_file_path, None, None
                 continue
 
-            # Set the image pi and creators
+            # Set the image pi and base creators
             image_pi = ImagePI(name="Christopher Jackett", uri="https://orcid.org/0000-0003-1132-1558")
             image_creators = [
                 ImageCreator(name="Christopher Jackett", uri="https://orcid.org/0000-0003-1132-1558"),
                 ImageCreator(name="Ian Jameson", uri="https://orcid.org/0000-0002-1365-9723"),
-                ImageCreator(name="Carlie Devine", uri="https://orcid.org/0000-0003-1397-7446"),
                 ImageCreator(name="Ros Watson", uri="https://orcid.org/0009-0005-9604-3658"),
                 ImageCreator(name="Peter H. Thrall", uri="https://orcid.org/0000-0003-1670-4240"),
                 ImageCreator(name="CSIRO", uri="https://www.csiro.au"),
             ]
 
-            # Add Emily to creators if collection year is 2023
+            # Add Carlie for 2021 and 2022 datasets
             collection_year = config.get("collection_year")
+            if collection_year in {"2021", "2022"}:
+                image_creators.insert(
+                    2,  # Insert after Ian
+                    ImageCreator(name="Carlie Devine", uri="https://orcid.org/0000-0003-1397-7446")
+                )
+
+            # Add Emily for 2023 dataset
             if collection_year == "2023":
-                # Insert Emily at second position
                 image_creators.insert(
                     1,
                     ImageCreator(name="Emily Gumina", uri="https://orcid.org/0009-0004-0169-9770")
