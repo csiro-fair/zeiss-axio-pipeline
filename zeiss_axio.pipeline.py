@@ -168,7 +168,7 @@ class ZeissAxioPipeline(BasePipeline):
         files_to_process = [source_file for source_file in source_path.glob("**/*") if source_file.is_file()]
 
         # Dynamically apply the multithreaded decorator
-        @multithreaded(max_workers=6)  # type: ignore[misc]
+        @multithreaded()  # type: ignore[misc]
         def process_file(
             self: ZeissAxioPipeline,
             thread_num: str,  # noqa: ARG001
