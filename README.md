@@ -126,7 +126,7 @@ The `--operation link` flag creates hard links instead of copying files, optimiz
 ```
 CAPMD_2021/                                         # Root dataset directory
 ├── data/                                           # Directory containing all processed data
-│   └── ZAO/                                        # Platform-specific data directory
+│   └── [ZAO/ZAP]/                                  # Platform-specific data directory
 │       └── [X100|X200|X400|X630]/                  # Magnification directories
 │           └── [BF|DIC|PC]/                        # Contrast setting directories
 │               └── [IDN|NA|TYL]/                   # Stain directories
