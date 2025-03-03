@@ -1,6 +1,7 @@
 """Marimba Pipeline for the CSIRO ANACC Zeiss Axio microscopes."""  # noqa: INP001
 
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -175,6 +176,7 @@ class ZeissAxioPipeline(BasePipeline):
             item: Path,
             data_dir: Path,
             config: dict[str, Any],
+            logger: logging.Logger | None = None,  # noqa: ARG001
         ) -> None:
             self.process_source_file(item, data_dir, config)
 
@@ -184,6 +186,7 @@ class ZeissAxioPipeline(BasePipeline):
             items=files_to_process,
             data_dir=data_dir,
             config=config,
+            logger=self.logger,
         )  # type: ignore[call-arg]
 
     def process_source_file(
@@ -558,6 +561,7 @@ class ZeissAxioPipeline(BasePipeline):
                 self,
                 image_list=image_list,
                 output_directory=base_image_sequence_dir / "thumbnails",
+                logger=self.logger,
             )
 
             # Create overview image name from the first image's identifiers
@@ -581,7 +585,7 @@ class ZeissAxioPipeline(BasePipeline):
             )
 
     # ruff: noqa: ARG002
-    def _package(
+    def _package(  # noqa: C901
         self,
         data_dir: Path,
         config: dict[str, Any],
@@ -643,14 +647,14 @@ class ZeissAxioPipeline(BasePipeline):
             if collection_year in {"2021", "2022"}:
                 image_creators.insert(
                     2,
-                    ImageCreator(name="Carlie Devine", uri="https://orcid.org/0000-0003-1397-7446")
+                    ImageCreator(name="Carlie Devine", uri="https://orcid.org/0000-0003-1397-7446"),
                 )
 
             # Add Emily for 2023 dataset
             if collection_year == "2023":
                 image_creators.insert(
                     2,
-                    ImageCreator(name="Emily Gumina", uri="https://orcid.org/0009-0004-0169-9770")
+                    ImageCreator(name="Emily Gumina", uri="https://orcid.org/0009-0004-0169-9770"),
                 )
 
             # Validate that self.config exists
