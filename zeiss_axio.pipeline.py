@@ -346,17 +346,16 @@ class ZeissAxioPipeline(BasePipeline):
 
         """
         try:
-            # Convert to RGB and normalize
+            # Convert to RGB and normalize to 8-bit for JPEG compatibility
             rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            # Create output array with same type as input
-            dst = np.empty_like(rgb_image)
+            # Normalize directly to 8-bit to avoid JPEG encoder warnings
             normalized_image = cv2.normalize(
                 src=rgb_image,
-                dst=dst,
+                dst=None,
                 alpha=0.0,
                 beta=255.0,
                 norm_type=cv2.NORM_MINMAX,
-                dtype=cv2.CV_16U,
+                dtype=cv2.CV_8U,
             )
 
             # Write JPG to disk
